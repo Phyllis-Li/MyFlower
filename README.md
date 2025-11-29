@@ -6,9 +6,9 @@ A comprehensive interactive game about nurturing a flower through different weat
 
 👥 Authors
 
-Chen Chuting
+Chen Chuting 25085191g
 
-Li Jinglei
+Li Jinglei 25122859g
 
 
 📖 Introduction 
