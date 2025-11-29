@@ -42,12 +42,6 @@ Mouse Click :
 Advance text dialogues and cutscenes/Restart levels after failure.
 
 
-Debug / Cheat Keys 
-Q: Reset Tutorial 
-W: Jump to Level 1
-E: Jump to Level 2
-R: Jump to Level 3
-
 
 🌟 Levels & Mechanics
 

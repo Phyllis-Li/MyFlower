@@ -7,6 +7,7 @@ import time
 
 # 初始化 Pygame
 pygame.init()
+pygame.mixer.init() # 初始化混音器
 
 # ==========================================
 # 1. 资源配置区
@@ -73,6 +74,25 @@ IMG_PATHS = {
     "E-2": "images/ending/ending.png"
 }
 
+# --- 音效路径清单 (新增) ---
+# 假设音频文件在同级目录或 sounds 文件夹下，这里根据您的描述直接引用文件名
+# 若有文件夹结构，请自行修改路径，例如 "sounds/pic1.mp3"
+SOUND_PATHS = {
+    "pic1": "music/pic1.mp3",
+    "pic2": "music/pic2.mp3",
+    "bgm": "music/bgm.mp3",
+    "click": "music/click.mp3",
+    "countbackward": "music/countbackward.mp3",
+    "drop": "music/drop.mp3",
+    "water": "music/water.mp3",
+    "ending": "music/ending.mp3",
+    "fail": "music/fail.mp3",
+    "pass": "music/pass.mp3",
+    "rainy": "music/rainy.mp3",
+    "shit": "music/bird.mp3",
+    "sourrain": "music/sourrain.mp3"
+}
+
 # --- 教学互动常量 ---
 MAX_ARM_SPREAD = 200    
 ARM_MOVEMENT_SPEED = 0.5  
@@ -94,7 +114,7 @@ RAINDROP_SIZE_MAX = 15
 # 第一关常量
 LEVEL1_SUNLIGHT_REQUIRED = 10.0  
 LEVEL1_RAIN_TOLERANCE = 3.0      
-LEVEL1_DURATION = 25.0           
+LEVEL1_DURATION = 30.0           
 
 # 第二关常量
 LEVEL2_SUNLIGHT_REQUIRED = 5.0   
@@ -109,7 +129,7 @@ LEVEL3_RAIN_REQUIRED = 5.0
 LEVEL3_SOURRAIN_TOLERANCE = 1.0 # 小于1秒
 
 # 鸟屎相关常量
-BIRD_DROP_SPEED = 20 # 下落速度常量 (intro和gameplay通用)
+BIRD_DROP_SPEED = 10 # 下落速度常量 (intro和gameplay通用)
 BIRD_FADE_SPEED = 15 # Intro中鸟屎消失速度
 BIRD_CHECK_HEIGHT_RATIO = 0.25 # 判定高度 (1/4屏幕高度) - 可调节常量
 
@@ -160,6 +180,36 @@ def load_img(key, size=None):
         img.blit(text, text_rect)
     return img
 
+# 加载音效函数
+def load_sounds():
+    loaded_sounds = {}
+    for key, path in SOUND_PATHS.items():
+        if key == "bgm":
+            # BGM使用music模块加载，这里只检查文件存在性
+            if not os.path.exists(path):
+                print(f"警告: 音频文件 {path} 未找到")
+            continue
+        try:
+            loaded_sounds[key] = pygame.mixer.Sound(path)
+        except FileNotFoundError:
+            print(f"警告: 音频文件 {path} 未找到，将静音")
+            # 创建一个空声音对象以防报错
+            loaded_sounds[key] = pygame.mixer.Sound(buffer=bytearray()) 
+    return loaded_sounds
+
+sounds = load_sounds()
+
+def play_bgm():
+    if os.path.exists(SOUND_PATHS["bgm"]):
+        try:
+            pygame.mixer.music.load(SOUND_PATHS["bgm"])
+            pygame.mixer.music.play(-1, fade_ms=2000) # 循环播放，2秒淡入
+        except:
+            pass
+
+def stop_bgm_fadeout():
+    pygame.mixer.music.fadeout(2000)
+
 def draw_progress_bar(current, required, text_alpha, is_rain_damage=False, is_rain_collect=False, bar_offset=0):
     BAR_WIDTH = 400
     BAR_HEIGHT = 20
@@ -171,7 +221,7 @@ def draw_progress_bar(current, required, text_alpha, is_rain_damage=False, is_ra
         protection_remaining = required - damage_accumulated
         damage_ratio = damage_accumulated / required 
         
-        bar_text = "保护"
+        bar_text = "damage"
         text_time = f"{protection_remaining:.1f}s / {required:.0f}s" 
         
         pygame.draw.rect(screen, LOW_SAT_RED, (BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT), 0, 5)
@@ -186,7 +236,7 @@ def draw_progress_bar(current, required, text_alpha, is_rain_damage=False, is_ra
         progress_ratio = current / required
         fill_width = int(BAR_WIDTH * progress_ratio)
         fill_color = (50, 150, 255) 
-        bar_text = "雨水"
+        bar_text = "rain"
         elapsed_time = f"{current:.1f}"
         text_time = f"{elapsed_time}s / {required:.0f}s"
         
@@ -197,7 +247,7 @@ def draw_progress_bar(current, required, text_alpha, is_rain_damage=False, is_ra
         progress_ratio = current / required
         fill_width = int(BAR_WIDTH * progress_ratio)
         fill_color = (255, 200, 0) 
-        bar_text = "太阳"
+        bar_text = "sun"
         elapsed_time = f"{current:.1f}"
         text_time = f"{elapsed_time}s / {required:.0f}s"
         
@@ -258,6 +308,9 @@ for key in all_keys:
         new_height = int(original_height * GLOBAL_SCALE_FACTOR)
         
         images[key] = pygame.transform.smoothscale(img, (new_width, new_height))
+        # 如果是鸟屎图片，顺带旋转大约 25 度（逆时针旋转）以匹配斜向右下的轨迹
+        if key == "birdshit":
+            images[key] = pygame.transform.rotate(images[key], 25)
 
 if "t-f" in images:
     flower_img = images["t-f"]
@@ -382,7 +435,7 @@ level3_sourrain_damage = 0.0
 level3_time_left = LEVEL3_DURATION
 level3_weather = "sunny"
 level3_weather_timer = 0.0
-level3_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+level3_weather_duration = 5.0 # Initial Sunny fixed 5s
 level3_game_active = False
 bird_warning_timer = 0.0
 bird_warning_duration = 0.0 # 1.0 - 1.5s
@@ -397,6 +450,41 @@ bird_intro_state = 0 # 0: text, 1: delay, 2: fall
 level3_bird_trigger_time = 0.0
 level3_bird_started = False 
 level3_bird_finished = False 
+
+# 音频环境管理变量
+current_environment_sound = None # 'rainy' or 'sourrain'
+
+def update_environment_sound(weather):
+    global current_environment_sound
+    
+    target_sound = None
+    if weather == "rainy":
+        target_sound = "rainy"
+    elif weather == "sourrain":
+        target_sound = "sourrain"
+    
+    if current_environment_sound != target_sound:
+        # 淡出当前声音
+        if current_environment_sound == "rainy":
+            sounds["rainy"].fadeout(1000)
+        elif current_environment_sound == "sourrain":
+            sounds["sourrain"].fadeout(1000)
+            
+        # 淡入新声音
+        if target_sound == "rainy":
+            sounds["rainy"].play(-1, fade_ms=1000)
+        elif target_sound == "sourrain":
+            sounds["sourrain"].play(-1, fade_ms=1000)
+            
+        current_environment_sound = target_sound
+
+def stop_all_environment_sounds():
+    global current_environment_sound
+    if current_environment_sound == "rainy":
+        sounds["rainy"].fadeout(1000)
+    elif current_environment_sound == "sourrain":
+        sounds["sourrain"].fadeout(1000)
+    current_environment_sound = None
 
 def reset_tutorial_state():
     global step, state_start_time, arm_position_offset, mouse_anim_offset, has_slid, slide_time
@@ -430,6 +518,7 @@ def reset_tutorial_state():
     rain_phase_time = 0.0
     is_restarting = False 
     raindrops = []
+    stop_all_environment_sounds()
 
 def reset_level1():
     global level1_sunlight_collected, level1_rain_damage, level1_time_left, level1_weather
@@ -445,6 +534,7 @@ def reset_level1():
     level1_game_active = False
     is_counting_down = False
     raindrops = []
+    stop_all_environment_sounds()
 
 def reset_level2():
     global level2_sunlight_collected, level2_rain_collected, level2_sourrain_damage, level2_time_left
@@ -462,6 +552,7 @@ def reset_level2():
     is_counting_down = False
     raindrops = []
     sourraindrops = []
+    stop_all_environment_sounds()
 
 def reset_level3():
     global level3_sunlight_collected, level3_rain_collected, level3_sourrain_damage, level3_time_left
@@ -485,6 +576,7 @@ def reset_level3():
     bird_checked = False
     bird_warning_timer = 0.0
     level3_bird_finished = False 
+    stop_all_environment_sounds()
 
 def restart_rain_phase():
     global step, state_start_time, damage_accumulated, rain_phase_time, alphas, is_restarting
@@ -492,6 +584,7 @@ def restart_rain_phase():
     alphas["fade_layer"] = 255 
     damage_accumulated = 0.0 
     rain_phase_time = 0.0 
+    stop_all_environment_sounds()
     
 def finalize_restart():
     global step, state_start_time, alphas, is_restarting
@@ -503,6 +596,8 @@ def finalize_restart():
     alphas["t-f"] = 255
     alphas["prompt_rain"] = 255
     is_restarting = False 
+    # 教学关卡14是雨天，开始下雨音效
+    update_environment_sound("rainy")
 
 def main():
     global step, timer, state_start_time, img5_2_offset_y, is_dropping, last_mouse_x, arm_position_offset
@@ -523,6 +618,9 @@ def main():
     
     last_mouse_x, _ = pygame.mouse.get_pos() 
     pygame.mouse.set_visible(False) 
+    
+    # --- 开场播放 pic1 ---
+    sounds["pic1"].play()
 
     while running:
         dt = clock.tick(FPS)
@@ -570,6 +668,7 @@ def main():
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: 
                     click_event = True
+                    sounds["click"].play() # 鼠标点击音效
 
         if is_restarting:
             if alphas["fade_layer"] > 0:
@@ -600,6 +699,9 @@ def main():
                     state_start_time = current_time
                     alphas["2-1"] = 0
                     alphas["text_step1"] = 0 
+                    # 播放 pic2 和 bgm
+                    sounds["pic2"].play()
+                    play_bgm()
 
         elif step == 2:
             if alphas["2-1"] < 255:
@@ -643,6 +745,7 @@ def main():
                     step = 6
                     state_start_time = current_time
                     is_dropping = True
+                    sounds["drop"].play() # 种子下落音效
 
         elif step == 6:
             drop_duration = 1000
@@ -660,6 +763,7 @@ def main():
                     step = 7
                     state_start_time = current_time
                     alphas["5-4"] = 0
+                    sounds["water"].play() # 浇水音效
 
         elif step == 7:
             if time_since_step < 500 and alphas["5-4"] < 255: 
@@ -755,6 +859,7 @@ def main():
                     alphas["t-rainy"] = 0
                     damage_accumulated = 0.0 
                     rain_phase_time = 0.0 
+                    update_environment_sound("rainy") # 开始下雨音效
 
         elif step == 14:
             rain_phase_time += dt / 1000 
@@ -779,6 +884,8 @@ def main():
                     state_start_time = current_time
                     alphas["t-rainy"] = 255 
                     alphas["prompt_success"] = 0 
+                    stop_all_environment_sounds() # 停止雨声
+                    sounds["pass"].play() # 教程通过音效
 
         elif step == 15:
             is_fading_out = (alphas["t-rainy"] > 0)
@@ -822,6 +929,9 @@ def main():
                 alphas["1-sunny"] = max(0, alphas["1-sunny"] - FADE_SPEED)
             if alphas["1-rainy"] < 255:
                 alphas["1-rainy"] = min(255, alphas["1-rainy"] + FADE_SPEED)
+                if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
+                     update_environment_sound("rainy") # 介绍页开始下雨音效
+
             
             if alphas["1-rainy"] >= 255:
                 if alphas["level1_prompt1"] > 0:
@@ -834,6 +944,9 @@ def main():
         
         elif step == 18:
             fade_out_complete = True
+            if current_environment_sound is not None:
+                stop_all_environment_sounds() # 介绍结束，淡出雨声
+
             for key in ["1-sunny", "1-rainy", "level1_text", "level1_prompt1", "level1_prompt2"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
@@ -853,6 +966,7 @@ def main():
                 alphas["t-f"] = 0
                 alphas["level1_number"] = 0
                 alphas["level1_timer"] = 0
+                sounds["countbackward"].play() # 倒计时音效
         
         # 第一关游戏进行中
         elif step == 19:
@@ -875,6 +989,12 @@ def main():
                         alphas[k] = min(255, alphas[k] + FADE_SPEED)
             
                 if level1_game_active:
+                    # 只有在 active 时才更新天气音效
+                    if level1_weather == "rainy":
+                        update_environment_sound("rainy")
+                    else:
+                        stop_all_environment_sounds()
+
                     level1_time_left -= dt / 1000
                     level1_time_left = max(0, level1_time_left)
                     level1_weather_timer += dt / 1000
@@ -903,18 +1023,24 @@ def main():
                         state_start_time = current_time
                         level1_game_active = False
                         alphas["2-f"] = 0
+                        stop_all_environment_sounds()
+                        sounds["pass"].play() # 第一关成功
                     elif level1_rain_damage >= LEVEL1_RAIN_TOLERANCE:
                         step = 20
                         state_start_time = current_time
                         level1_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["1-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play() # 第一关失败
                     elif level1_time_left <= 0:
                         step = 20
                         state_start_time = current_time
                         level1_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["1-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play() # 第一关失败
         
         # 第一关结算
         elif step == 20:
@@ -968,6 +1094,8 @@ def main():
                 alphas["1-sunny"] = max(0, alphas["1-sunny"] - FADE_SPEED)
             if alphas["1-rainy"] < 255:
                 alphas["1-rainy"] = min(255, alphas["1-rainy"] + FADE_SPEED)
+                if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
+                    update_environment_sound("rainy") # 介绍页开始下雨音效
             
             if alphas["1-rainy"] >= 255:
                 if alphas["level2_prompt1"] > 0:
@@ -983,6 +1111,8 @@ def main():
                 alphas["1-rainy"] = max(0, alphas["1-rainy"] - FADE_SPEED)
             if alphas["1-sourrain"] < 255:
                 alphas["1-sourrain"] = min(255, alphas["1-sourrain"] + FADE_SPEED)
+                if alphas["1-sourrain"] > 50 and current_environment_sound != "sourrain":
+                    update_environment_sound("sourrain") # 介绍页酸雨音效
             
             if alphas["1-sourrain"] >= 255:
                 if alphas["level2_prompt2"] > 0:
@@ -995,6 +1125,9 @@ def main():
         
         elif step == 24:
             fade_out_complete = True
+            if current_environment_sound is not None:
+                stop_all_environment_sounds()
+
             for key in ["1-sunny", "1-rainy", "1-sourrain", "level2_text", "level2_prompt1", "level2_prompt2", "level2_prompt3"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
@@ -1014,6 +1147,7 @@ def main():
                 alphas["2-f"] = 0  
                 alphas["level2_number"] = 0
                 alphas["level2_timer"] = 0
+                sounds["countbackward"].play() # 倒计时音效
         
         # 第二关游戏进行中
         elif step == 25:
@@ -1036,6 +1170,14 @@ def main():
                         alphas[k] = min(255, alphas[k] + FADE_SPEED)
             
                 if level2_game_active:
+                    # 天气音效逻辑
+                    if level2_weather == "rainy":
+                        update_environment_sound("rainy")
+                    elif level2_weather == "sourrain":
+                        update_environment_sound("sourrain")
+                    else:
+                        stop_all_environment_sounds()
+
                     level2_time_left -= dt / 1000
                     level2_time_left = max(0, level2_time_left)
                     level2_weather_timer += dt / 1000
@@ -1069,18 +1211,24 @@ def main():
                         state_start_time = current_time
                         level2_game_active = False
                         alphas["3-f"] = 0
+                        stop_all_environment_sounds()
+                        sounds["pass"].play()
                     elif level2_sourrain_damage >= LEVEL2_SOURRAIN_TOLERANCE:
                         step = 26
                         state_start_time = current_time
                         level2_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["2-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play()
                     elif level2_time_left <= 0:
                         step = 26
                         state_start_time = current_time
                         level2_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["2-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play()
         
         # 第二关结算
         elif step == 26:
@@ -1135,9 +1283,13 @@ def main():
                 step = 28
                 state_start_time = current_time
                 bird_intro_y = -50
+                # --- 修改开始 ---
+                # 让起始 X 坐标在屏幕中心偏左 200 像素的位置
+                bird_intro_x = (SCREEN_WIDTH // 2) - 200 
+                # --- 修改结束 ---
                 bird_intro_active = False
                 alphas["birdshit"] = 0
-                alphas["level3_prompt_rain"] = 0 # 隐藏Sunny文字
+                alphas["level3_prompt_rain"] = 0
         
         # Step 28: 鸟屎介绍 - 等待点击
         elif step == 28:
@@ -1154,6 +1306,8 @@ def main():
                 else:
                     # 鸟屎下落
                     bird_intro_y += BIRD_DROP_SPEED
+                    # 增加 X 坐标，形成斜向右下的轨迹 (水平速度为垂直速度的一半)
+                    bird_intro_x += BIRD_DROP_SPEED * 0.5 
                     # 下落到屏幕中间开始渐隐
                     if bird_intro_y > SCREEN_HEIGHT // 2 - 100:
                          if alphas["birdshit"] > 0:
@@ -1173,6 +1327,8 @@ def main():
             # Rainy 渐显
             if alphas["1-rainy"] < 255:
                 alphas["1-rainy"] = min(255, alphas["1-rainy"] + FADE_SPEED)
+                if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
+                    update_environment_sound("rainy")
             
             # Rainy 文字
             if alphas["1-rainy"] >= 255:
@@ -1191,6 +1347,8 @@ def main():
                  alphas["1-rainy"] = max(0, alphas["1-rainy"] - FADE_SPEED)
             if alphas["1-sourrain"] < 255:
                  alphas["1-sourrain"] = min(255, alphas["1-sourrain"] + FADE_SPEED)
+                 if alphas["1-sourrain"] > 50 and current_environment_sound != "sourrain":
+                     update_environment_sound("sourrain")
             
             # Sourrain 文字
             if alphas["1-sourrain"] >= 255:
@@ -1205,6 +1363,9 @@ def main():
         # Step 30: 准备开始
         elif step == 30:
             fade_out_complete = True
+            if current_environment_sound is not None:
+                stop_all_environment_sounds()
+
             for key in ["1-sunny", "1-rainy", "1-sourrain", "level3_text", "level3_prompt_rain", "level3_prompt1", "level3_prompt2", "level3_prompt_sour"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
@@ -1224,6 +1385,7 @@ def main():
                 alphas["3-f"] = 0  
                 alphas["level3_number"] = 0
                 alphas["level3_timer"] = 0
+                sounds["countbackward"].play()
                 
                 # 初始化 Sunny 鸟屎逻辑
                 level3_weather = "sunny"
@@ -1254,6 +1416,14 @@ def main():
                         alphas[k] = min(255, alphas[k] + FADE_SPEED)
 
                 if level3_game_active:
+                    # 天气音效逻辑
+                    if level3_weather == "rainy":
+                        update_environment_sound("rainy")
+                    elif level3_weather == "sourrain":
+                        update_environment_sound("sourrain")
+                    else:
+                        stop_all_environment_sounds()
+
                     level3_time_left -= dt / 1000
                     level3_time_left = max(0, level3_time_left)
 
@@ -1294,6 +1464,10 @@ def main():
                         
                         # 如果已经触发，进入警告阶段 (修改: 增加 and not level3_bird_finished)
                         if level3_bird_started and not bird_active and not level3_bird_finished:
+                            # 播放 bird shit 提示音效
+                            if alphas["level3_prompt2"] == 0:
+                                sounds["shit"].play()
+
                             if alphas["level3_prompt2"] < 255:
                                 alphas["level3_prompt2"] = min(255, alphas["level3_prompt2"] + FADE_SPEED * 2)
                             
@@ -1302,6 +1476,8 @@ def main():
                                 # 警告结束，开始下落
                                 bird_active = True
                                 bird_y = -50
+                                # 设定起始 X 坐标为中心偏左 200 像素
+                                bird_x = (SCREEN_WIDTH // 2) - 200
                                 bird_checked = False
                                 alphas["birdshit"] = 255
                                 alphas["level3_prompt2"] = 0 # 文字立即消失 (要求2/3)
@@ -1309,7 +1485,8 @@ def main():
                     # --- 鸟屎下落逻辑 (独立于天气，只要激活了就一直落) ---
                     if bird_active:
                         bird_y += BIRD_DROP_SPEED
-                        
+                        # 增加 X 坐标
+                        bird_x += BIRD_DROP_SPEED * 0.5
                         check_y = SCREEN_HEIGHT * BIRD_CHECK_HEIGHT_RATIO
                         
                         # 判定时刻
@@ -1333,6 +1510,8 @@ def main():
                                 state_start_time = current_time
                                 alphas["1-baselose"] = 0
                                 alphas["3-f-l"] = 0
+                                stop_all_environment_sounds()
+                                sounds["fail"].play()
 
                     # --- 资源收集逻辑 ---
                     if level3_weather == "sunny":
@@ -1358,6 +1537,8 @@ def main():
                         # 隐藏游戏界面元素
                         for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer", "t-sunny", "t-rainy", "1-sourrain", "birdshit", "level3_prompt2"]:
                             alphas[k] = 0
+                        stop_all_environment_sounds()
+                        sounds["pass"].play()
                     
                     elif level3_sourrain_damage >= LEVEL3_SOURRAIN_TOLERANCE:
                         # 失败 (酸雨)
@@ -1366,6 +1547,8 @@ def main():
                         level3_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["3-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play()
 
                     elif level3_time_left <= 0:
                         # 失败 (超时)
@@ -1374,6 +1557,8 @@ def main():
                         level3_game_active = False
                         alphas["1-baselose"] = 0
                         alphas["3-f-l"] = 0
+                        stop_all_environment_sounds()
+                        sounds["fail"].play()
         
         # Step 32: 第三关失败
         elif step == 32:
@@ -1409,6 +1594,8 @@ def main():
             if alphas["ending_text_1"] >= 255 and click_event:
                  step = 34
                  state_start_time = current_time
+                 stop_bgm_fadeout() # 停止BGM
+                 sounds["ending"].play(fade_ms=2000) # 播放Ending音效
                  
         # Step 34: 最终结局 Part 2
         elif step == 34:
@@ -1739,7 +1926,7 @@ def main():
         elif step == 20:
             if level1_sunlight_collected >= LEVEL1_SUNLIGHT_REQUIRED:
                 blit_alpha("t-1", (0, 0))
-                pos_f_x = (SCREEN_WIDTH - images["2-f"].get_width()) // 2 + 20
+                pos_f_x = (SCREEN_WIDTH - images["2-f"].get_width()) // 2 + 10
                 pos_f_y = SCREEN_HEIGHT - images["2-f"].get_height() - 200
                 blit_alpha("2-f", (pos_f_x, pos_f_y))
                 if alphas["level1_prompt1"] > 0:
@@ -1915,7 +2102,7 @@ def main():
             if alphas["birdshit"] > 0:
                 bird_img = images["birdshit"]
                 bird_img.set_alpha(alphas["birdshit"])
-                screen.blit(bird_img, (SCREEN_WIDTH // 2 - bird_img.get_width() // 2, bird_intro_y))
+                screen.blit(bird_img, (bird_intro_x - bird_img.get_width() // 2, bird_intro_y))
 
             # --- 花朵绘制 (3-f 缩小1/3) ---
             flower_alpha = max(alphas["1-sunny"], alphas["1-rainy"], alphas["1-sourrain"])
@@ -1997,7 +2184,7 @@ def main():
             if bird_active and alphas["birdshit"] > 0:
                 bird_img = images["birdshit"]
                 bird_img.set_alpha(alphas["birdshit"])
-                screen.blit(bird_img, (SCREEN_WIDTH // 2 - bird_img.get_width() // 2, bird_y))
+                screen.blit(bird_img, (bird_x - bird_img.get_width() // 2, bird_y))
 
             if alphas["level3_number"] > 0:
                 draw_level_number(3, alphas["level3_number"])
