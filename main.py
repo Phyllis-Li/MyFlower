@@ -129,11 +129,13 @@ clock = pygame.time.Clock()
 
 try:
     game_font = pygame.font.Font(FONT_PATH, 24)
-    level_font = pygame.font.Font(FONT_PATH, 48)  
+    level_font = pygame.font.Font(FONT_PATH, 48)
+    countdown_font = pygame.font.Font(FONT_PATH, 120) # 倒计时大字体
 except:
     print(f"提示: 未找到字体 {FONT_PATH}，使用系统默认字体")
     game_font = pygame.font.Font(None, 24)
     level_font = pygame.font.Font(None, 48)
+    countdown_font = pygame.font.Font(None, 120)
 
 def load_img(key, size=None):
     path = IMG_PATHS[key]
@@ -279,6 +281,10 @@ arm_position_offset = 0
 mouse_anim_offset = 0 
 has_slid = False
 slide_time = 0
+
+# 新增倒计时相关变量
+is_counting_down = False
+countdown_start_time = 0
 
 alphas = {k: 0 for k in IMG_PATHS.keys()}
 # 初始化所有alpha为0
@@ -428,6 +434,7 @@ def reset_tutorial_state():
 def reset_level1():
     global level1_sunlight_collected, level1_rain_damage, level1_time_left, level1_weather
     global level1_weather_timer, level1_weather_duration, level1_game_active, raindrops
+    global is_counting_down
     
     level1_sunlight_collected = 0.0
     level1_rain_damage = 0.0
@@ -436,12 +443,13 @@ def reset_level1():
     level1_weather_timer = 0.0
     level1_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
     level1_game_active = False
+    is_counting_down = False
     raindrops = []
 
 def reset_level2():
     global level2_sunlight_collected, level2_rain_collected, level2_sourrain_damage, level2_time_left
     global level2_weather, level2_weather_timer, level2_weather_duration, level2_game_active
-    global raindrops, sourraindrops
+    global raindrops, sourraindrops, is_counting_down
     
     level2_sunlight_collected = 0.0
     level2_rain_collected = 0.0
@@ -451,6 +459,7 @@ def reset_level2():
     level2_weather_timer = 0.0
     level2_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
     level2_game_active = False
+    is_counting_down = False
     raindrops = []
     sourraindrops = []
 
@@ -458,7 +467,7 @@ def reset_level3():
     global level3_sunlight_collected, level3_rain_collected, level3_sourrain_damage, level3_time_left
     global level3_weather, level3_weather_timer, level3_weather_duration, level3_game_active
     global raindrops, sourraindrops, bird_active, bird_y, bird_checked, bird_warning_timer
-    global level3_bird_finished
+    global level3_bird_finished, is_counting_down
     
     level3_sunlight_collected = 0.0
     level3_rain_collected = 0.0
@@ -468,6 +477,7 @@ def reset_level3():
     level3_weather_timer = 0.0
     level3_weather_duration = 5.0 # Initial Sunny fixed 5s
     level3_game_active = False
+    is_counting_down = False
     raindrops = []
     sourraindrops = []
     bird_active = False
@@ -506,6 +516,7 @@ def main():
     global level3_weather, level3_weather_timer, level3_weather_duration, level3_game_active
     global bird_warning_timer, bird_warning_duration, bird_active, bird_y, bird_checked, bird_intro_y, bird_intro_active, bird_intro_state
     global level3_bird_trigger_time, level3_bird_started, level3_bird_finished
+    global is_counting_down, countdown_start_time
 
     running = True
     state_start_time = pygame.time.get_ticks()
@@ -521,7 +532,8 @@ def main():
         current_mouse_x, _ = pygame.mouse.get_pos()
         mouse_dx = current_mouse_x - last_mouse_x
 
-        if (step >= 11 and step < 33) and not is_restarting: 
+        # 增加判断：只有在不倒计时的时候才允许移动手臂
+        if (step >= 11 and step < 33) and not is_restarting and not is_counting_down: 
             arm_position_offset += mouse_dx * ARM_MOVEMENT_SPEED
             arm_position_offset = pygame.math.clamp(arm_position_offset, 0, MAX_ARM_SPREAD)
 
@@ -831,7 +843,10 @@ def main():
                 step = 19
                 state_start_time = current_time
                 reset_level1()
-                level1_game_active = True
+                # 开启倒计时模式
+                is_counting_down = True
+                countdown_start_time = current_time
+                level1_game_active = False # 暂时不激活
                 alphas["t-1"] = 0
                 alphas["t-l"] = 0
                 alphas["t-r"] = 0
@@ -841,51 +856,65 @@ def main():
         
         # 第一关游戏进行中
         elif step == 19:
+            # 基础画面渐显 (背景、花、手)
             if alphas["t-1"] < 255:
-                for k in ["t-1", "t-l", "t-r", "t-f", "level1_number", "level1_timer"]:
-                    alphas[k] = min(255, alphas[k] + FADE_SPEED)
+                 for k in ["t-1", "t-l", "t-r", "t-f"]:
+                     alphas[k] = min(255, alphas[k] + FADE_SPEED)
+
+            # 倒计时逻辑
+            if is_counting_down:
+                elapsed = current_time - countdown_start_time
+                if elapsed > 3000: # 3秒倒计时结束
+                    is_counting_down = False
+                    level1_game_active = True
+                    last_mouse_x = current_mouse_x # 防止倒计时结束后鼠标瞬移
+            else:
+                # 倒计时结束后，渐显 UI 元素
+                for k in ["level1_number", "level1_timer"]:
+                    if alphas[k] < 255:
+                        alphas[k] = min(255, alphas[k] + FADE_SPEED)
             
-            if level1_game_active:
-                level1_time_left -= dt / 1000
-                level1_time_left = max(0, level1_time_left)
-                level1_weather_timer += dt / 1000
-                if level1_weather_timer >= level1_weather_duration:
-                    level1_weather_timer = 0
-                    level1_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+                if level1_game_active:
+                    level1_time_left -= dt / 1000
+                    level1_time_left = max(0, level1_time_left)
+                    level1_weather_timer += dt / 1000
+                    if level1_weather_timer >= level1_weather_duration:
+                        level1_weather_timer = 0
+                        level1_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+                        
+                        if level1_weather == "sunny":
+                            level1_weather = "rainy"
+                        else:
+                            level1_weather = "sunny"
+                    
+                    is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
                     
                     if level1_weather == "sunny":
-                        level1_weather = "rainy"
+                        if is_arms_open:
+                            level1_sunlight_collected += dt / 1000
+                            level1_sunlight_collected = min(level1_sunlight_collected, LEVEL1_SUNLIGHT_REQUIRED)
                     else:
-                        level1_weather = "sunny"
-                
-                is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
-                
-                if level1_weather == "sunny":
-                    if is_arms_open:
-                        level1_sunlight_collected += dt / 1000
-                        level1_sunlight_collected = min(level1_sunlight_collected, LEVEL1_SUNLIGHT_REQUIRED)
-                else:
-                    if is_arms_open:  
-                        level1_rain_damage += dt / 1000
-                        level1_rain_damage = min(level1_rain_damage, LEVEL1_RAIN_TOLERANCE)
-                
-                if level1_sunlight_collected >= LEVEL1_SUNLIGHT_REQUIRED:
-                    step = 20
-                    state_start_time = current_time
-                    level1_game_active = False
-                    alphas["2-f"] = 0
-                elif level1_rain_damage >= LEVEL1_RAIN_TOLERANCE:
-                    step = 20
-                    state_start_time = current_time
-                    level1_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["1-f-l"] = 0
-                elif level1_time_left <= 0:
-                    step = 20
-                    state_start_time = current_time
-                    level1_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["1-f-l"] = 0
+                        if is_arms_open:  
+                            level1_rain_damage += dt / 1000
+                            level1_rain_damage = min(level1_rain_damage, LEVEL1_RAIN_TOLERANCE)
+                    
+                    if level1_sunlight_collected >= LEVEL1_SUNLIGHT_REQUIRED:
+                        step = 20
+                        state_start_time = current_time
+                        level1_game_active = False
+                        alphas["2-f"] = 0
+                    elif level1_rain_damage >= LEVEL1_RAIN_TOLERANCE:
+                        step = 20
+                        state_start_time = current_time
+                        level1_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["1-f-l"] = 0
+                    elif level1_time_left <= 0:
+                        step = 20
+                        state_start_time = current_time
+                        level1_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["1-f-l"] = 0
         
         # 第一关结算
         elif step == 20:
@@ -975,7 +1004,10 @@ def main():
                 step = 25
                 state_start_time = current_time
                 reset_level2()
-                level2_game_active = True
+                # 开启倒计时模式
+                is_counting_down = True
+                countdown_start_time = current_time
+                level2_game_active = False
                 alphas["t-1"] = 0
                 alphas["t-l"] = 0
                 alphas["t-r"] = 0
@@ -985,56 +1017,70 @@ def main():
         
         # 第二关游戏进行中
         elif step == 25:
+             # 基础画面渐显
             if alphas["t-1"] < 255:
-                for k in ["t-1", "t-l", "t-r", "2-f", "level2_number", "level2_timer"]:
+                for k in ["t-1", "t-l", "t-r", "2-f"]:
                     alphas[k] = min(255, alphas[k] + FADE_SPEED)
             
-            if level2_game_active:
-                level2_time_left -= dt / 1000
-                level2_time_left = max(0, level2_time_left)
-                level2_weather_timer += dt / 1000
-                if level2_weather_timer >= level2_weather_duration:
-                    level2_weather_timer = 0
-                    level2_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+            # 倒计时逻辑
+            if is_counting_down:
+                elapsed = current_time - countdown_start_time
+                if elapsed > 3000: # 3秒倒计时结束
+                    is_counting_down = False
+                    level2_game_active = True
+                    last_mouse_x = current_mouse_x
+            else:
+                # 倒计时结束后，渐显 UI
+                for k in ["level2_number", "level2_timer"]:
+                    if alphas[k] < 255:
+                        alphas[k] = min(255, alphas[k] + FADE_SPEED)
+            
+                if level2_game_active:
+                    level2_time_left -= dt / 1000
+                    level2_time_left = max(0, level2_time_left)
+                    level2_weather_timer += dt / 1000
+                    if level2_weather_timer >= level2_weather_duration:
+                        level2_weather_timer = 0
+                        level2_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+                        
+                        options = ["sunny", "rainy", "sourrain"]
+                        if level2_weather in options:
+                            options.remove(level2_weather)
+                        level2_weather = random.choice(options)
                     
-                    options = ["sunny", "rainy", "sourrain"]
-                    if level2_weather in options:
-                        options.remove(level2_weather)
-                    level2_weather = random.choice(options)
-                
-                is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
-                
-                if level2_weather == "sunny":
-                    if is_arms_open and level2_sunlight_collected < LEVEL2_SUNLIGHT_REQUIRED:
-                        level2_sunlight_collected += dt / 1000
-                        level2_sunlight_collected = min(level2_sunlight_collected, LEVEL2_SUNLIGHT_REQUIRED)
-                elif level2_weather == "rainy":
-                    if is_arms_open and level2_rain_collected < LEVEL2_RAIN_REQUIRED:
-                        level2_rain_collected += dt / 1000
-                        level2_rain_collected = min(level2_rain_collected, LEVEL2_RAIN_REQUIRED)
-                else: 
-                    if is_arms_open: 
-                        level2_sourrain_damage += dt / 1000
-                        level2_sourrain_damage = min(level2_sourrain_damage, LEVEL2_SOURRAIN_TOLERANCE)
-                
-                if (level2_sunlight_collected >= LEVEL2_SUNLIGHT_REQUIRED and 
-                    level2_rain_collected >= LEVEL2_RAIN_REQUIRED):
-                    step = 26
-                    state_start_time = current_time
-                    level2_game_active = False
-                    alphas["3-f"] = 0
-                elif level2_sourrain_damage >= LEVEL2_SOURRAIN_TOLERANCE:
-                    step = 26
-                    state_start_time = current_time
-                    level2_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["2-f-l"] = 0
-                elif level2_time_left <= 0:
-                    step = 26
-                    state_start_time = current_time
-                    level2_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["2-f-l"] = 0
+                    is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
+                    
+                    if level2_weather == "sunny":
+                        if is_arms_open and level2_sunlight_collected < LEVEL2_SUNLIGHT_REQUIRED:
+                            level2_sunlight_collected += dt / 1000
+                            level2_sunlight_collected = min(level2_sunlight_collected, LEVEL2_SUNLIGHT_REQUIRED)
+                    elif level2_weather == "rainy":
+                        if is_arms_open and level2_rain_collected < LEVEL2_RAIN_REQUIRED:
+                            level2_rain_collected += dt / 1000
+                            level2_rain_collected = min(level2_rain_collected, LEVEL2_RAIN_REQUIRED)
+                    else: 
+                        if is_arms_open: 
+                            level2_sourrain_damage += dt / 1000
+                            level2_sourrain_damage = min(level2_sourrain_damage, LEVEL2_SOURRAIN_TOLERANCE)
+                    
+                    if (level2_sunlight_collected >= LEVEL2_SUNLIGHT_REQUIRED and 
+                        level2_rain_collected >= LEVEL2_RAIN_REQUIRED):
+                        step = 26
+                        state_start_time = current_time
+                        level2_game_active = False
+                        alphas["3-f"] = 0
+                    elif level2_sourrain_damage >= LEVEL2_SOURRAIN_TOLERANCE:
+                        step = 26
+                        state_start_time = current_time
+                        level2_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["2-f-l"] = 0
+                    elif level2_time_left <= 0:
+                        step = 26
+                        state_start_time = current_time
+                        level2_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["2-f-l"] = 0
         
         # 第二关结算
         elif step == 26:
@@ -1168,7 +1214,10 @@ def main():
                 step = 31
                 state_start_time = current_time
                 reset_level3()
-                level3_game_active = True
+                # 开启倒计时模式
+                is_counting_down = True
+                countdown_start_time = current_time
+                level3_game_active = False
                 alphas["t-1"] = 0
                 alphas["t-l"] = 0
                 alphas["t-r"] = 0
@@ -1186,131 +1235,145 @@ def main():
 
         # Step 31: 第三关游戏进行中
         elif step == 31:
+             # 基础画面渐显
             if alphas["t-1"] < 255:
-                for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer"]:
+                for k in ["t-1", "t-l", "t-r", "3-f"]:
                     alphas[k] = min(255, alphas[k] + FADE_SPEED)
 
-            if level3_game_active:
-                level3_time_left -= dt / 1000
-                level3_time_left = max(0, level3_time_left)
+            # 倒计时逻辑
+            if is_counting_down:
+                elapsed = current_time - countdown_start_time
+                if elapsed > 3000: # 3秒倒计时结束
+                    is_counting_down = False
+                    level3_game_active = True
+                    last_mouse_x = current_mouse_x
+            else:
+                # 倒计时结束后，渐显 UI
+                for k in ["level3_number", "level3_timer"]:
+                    if alphas[k] < 255:
+                        alphas[k] = min(255, alphas[k] + FADE_SPEED)
 
-                is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
+                if level3_game_active:
+                    level3_time_left -= dt / 1000
+                    level3_time_left = max(0, level3_time_left)
 
-                # --- 天气计时器 ---
-                level3_weather_timer += dt / 1000
-                if level3_weather_timer >= level3_weather_duration:
-                    level3_weather_timer = 0
-                    
-                    # 切换天气 (只在 sunny, rainy, sourrain 中切换)
-                    options = ["sunny", "rainy", "sourrain"]
-                    if level3_weather in options:
-                         options.remove(level3_weather)
-                    level3_weather = random.choice(options)
-                    
-                    if level3_weather == "sunny":
-                        level3_weather_duration = 5.0
-                        # 重置鸟屎逻辑
-                        level3_bird_trigger_time = random.uniform(2.0, 3.0)
-                        level3_bird_started = False
-                        level3_bird_finished = False # 重置完成状态
-                        bird_warning_timer = 0
-                        alphas["level3_prompt2"] = 0 # 确保文字隐藏
-                    else:
-                        level3_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+                    is_arms_open = (arm_position_offset > ARM_CLOSED_THRESHOLD)
 
-                # --- 鸟屎逻辑 (仅在 Sunny 期间触发) ---
-                if level3_weather == "sunny":
-                    # 触发检查
-                    if not level3_bird_started and level3_weather_timer >= level3_bird_trigger_time:
-                        level3_bird_started = True
-                        level3_bird_finished = False # 确保初始状态为未完成
-                        bird_warning_timer = 0
-                        bird_warning_duration = random.uniform(1.0, 1.5)
-                        bird_active = False # 先不激活下落，先激活文字
-                        alphas["level3_prompt2"] = 0 
-                    
-                    # 如果已经触发，进入警告阶段 (修改: 增加 and not level3_bird_finished)
-                    if level3_bird_started and not bird_active and not level3_bird_finished:
-                        if alphas["level3_prompt2"] < 255:
-                            alphas["level3_prompt2"] = min(255, alphas["level3_prompt2"] + FADE_SPEED * 2)
+                    # --- 天气计时器 ---
+                    level3_weather_timer += dt / 1000
+                    if level3_weather_timer >= level3_weather_duration:
+                        level3_weather_timer = 0
                         
-                        bird_warning_timer += dt / 1000
-                        if bird_warning_timer >= bird_warning_duration:
-                            # 警告结束，开始下落
-                            bird_active = True
-                            bird_y = -50
-                            bird_checked = False
-                            alphas["birdshit"] = 255
-                            alphas["level3_prompt2"] = 0 # 文字立即消失 (要求2/3)
-
-                # --- 鸟屎下落逻辑 (独立于天气，只要激活了就一直落) ---
-                if bird_active:
-                    bird_y += BIRD_DROP_SPEED
-                    
-                    check_y = SCREEN_HEIGHT * BIRD_CHECK_HEIGHT_RATIO
-                    
-                    # 判定时刻
-                    if bird_y >= check_y and not bird_checked:
-                        bird_checked = True
-                        if is_arms_open:
-                            # 手打开 -> 判定失败，鸟屎继续下落
-                            pass 
+                        # 切换天气 (只在 sunny, rainy, sourrain 中切换)
+                        options = ["sunny", "rainy", "sourrain"]
+                        if level3_weather in options:
+                            options.remove(level3_weather)
+                        level3_weather = random.choice(options)
+                        
+                        if level3_weather == "sunny":
+                            level3_weather_duration = 5.0
+                            # 重置鸟屎逻辑
+                            level3_bird_trigger_time = random.uniform(2.0, 3.0)
+                            level3_bird_started = False
+                            level3_bird_finished = False # 重置完成状态
+                            bird_warning_timer = 0
+                            alphas["level3_prompt2"] = 0 # 确保文字隐藏
                         else:
-                            # 手关闭 -> 判定成功，鸟屎直接消失
-                            bird_active = False
-                            alphas["birdshit"] = 0
-                            level3_bird_finished = True # 标记本次结束
+                            level3_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
+
+                    # --- 鸟屎逻辑 (仅在 Sunny 期间触发) ---
+                    if level3_weather == "sunny":
+                        # 触发检查
+                        if not level3_bird_started and level3_weather_timer >= level3_bird_trigger_time:
+                            level3_bird_started = True
+                            level3_bird_finished = False # 确保初始状态为未完成
+                            bird_warning_timer = 0
+                            bird_warning_duration = random.uniform(1.0, 1.5)
+                            bird_active = False # 先不激活下落，先激活文字
+                            alphas["level3_prompt2"] = 0 
+                        
+                        # 如果已经触发，进入警告阶段 (修改: 增加 and not level3_bird_finished)
+                        if level3_bird_started and not bird_active and not level3_bird_finished:
+                            if alphas["level3_prompt2"] < 255:
+                                alphas["level3_prompt2"] = min(255, alphas["level3_prompt2"] + FADE_SPEED * 2)
+                            
+                            bird_warning_timer += dt / 1000
+                            if bird_warning_timer >= bird_warning_duration:
+                                # 警告结束，开始下落
+                                bird_active = True
+                                bird_y = -50
+                                bird_checked = False
+                                alphas["birdshit"] = 255
+                                alphas["level3_prompt2"] = 0 # 文字立即消失 (要求2/3)
+
+                    # --- 鸟屎下落逻辑 (独立于天气，只要激活了就一直落) ---
+                    if bird_active:
+                        bird_y += BIRD_DROP_SPEED
+                        
+                        check_y = SCREEN_HEIGHT * BIRD_CHECK_HEIGHT_RATIO
+                        
+                        # 判定时刻
+                        if bird_y >= check_y and not bird_checked:
+                            bird_checked = True
+                            if is_arms_open:
+                                # 手打开 -> 判定失败，鸟屎继续下落
+                                pass 
+                            else:
+                                # 手关闭 -> 判定成功，鸟屎直接消失
+                                bird_active = False
+                                alphas["birdshit"] = 0
+                                level3_bird_finished = True # 标记本次结束
+                        
+                        # 如果判定已过且鸟屎还活着（说明是手打开的情况），继续判断是否砸中花
+                        if bird_checked and bird_active:
+                            if bird_y >= SCREEN_HEIGHT // 2:
+                                # 砸中花朵（1/2高度），游戏失败
+                                level3_game_active = False
+                                step = 32
+                                state_start_time = current_time
+                                alphas["1-baselose"] = 0
+                                alphas["3-f-l"] = 0
+
+                    # --- 资源收集逻辑 ---
+                    if level3_weather == "sunny":
+                        if is_arms_open:
+                            level3_sunlight_collected += dt / 1000
+                            level3_sunlight_collected = min(level3_sunlight_collected, LEVEL3_SUNLIGHT_REQUIRED)
+                    elif level3_weather == "rainy":
+                        if is_arms_open: # 收集雨水
+                            level3_rain_collected += dt / 1000
+                            level3_rain_collected = min(level3_rain_collected, LEVEL3_RAIN_REQUIRED)
+                    elif level3_weather == "sourrain":
+                        if is_arms_open: # 酸雨伤害
+                            level3_sourrain_damage += dt / 1000
+                            level3_sourrain_damage = min(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE)
                     
-                    # 如果判定已过且鸟屎还活着（说明是手打开的情况），继续判断是否砸中花
-                    if bird_checked and bird_active:
-                        if bird_y >= SCREEN_HEIGHT // 2:
-                             # 砸中花朵（1/2高度），游戏失败
-                             level3_game_active = False
-                             step = 32
-                             state_start_time = current_time
-                             alphas["1-baselose"] = 0
-                             alphas["3-f-l"] = 0
+                    # 胜利/失败判定
+                    if (level3_sunlight_collected >= LEVEL3_SUNLIGHT_REQUIRED and 
+                        level3_rain_collected >= LEVEL3_RAIN_REQUIRED):
+                        # 胜利
+                        step = 33
+                        state_start_time = current_time
+                        level3_game_active = False
+                        # 隐藏游戏界面元素
+                        for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer", "t-sunny", "t-rainy", "1-sourrain", "birdshit", "level3_prompt2"]:
+                            alphas[k] = 0
+                    
+                    elif level3_sourrain_damage >= LEVEL3_SOURRAIN_TOLERANCE:
+                        # 失败 (酸雨)
+                        step = 32
+                        state_start_time = current_time
+                        level3_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["3-f-l"] = 0
 
-                # --- 资源收集逻辑 ---
-                if level3_weather == "sunny":
-                    if is_arms_open:
-                        level3_sunlight_collected += dt / 1000
-                        level3_sunlight_collected = min(level3_sunlight_collected, LEVEL3_SUNLIGHT_REQUIRED)
-                elif level3_weather == "rainy":
-                    if is_arms_open: # 收集雨水
-                        level3_rain_collected += dt / 1000
-                        level3_rain_collected = min(level3_rain_collected, LEVEL3_RAIN_REQUIRED)
-                elif level3_weather == "sourrain":
-                    if is_arms_open: # 酸雨伤害
-                        level3_sourrain_damage += dt / 1000
-                        level3_sourrain_damage = min(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE)
-                
-                # 胜利/失败判定
-                if (level3_sunlight_collected >= LEVEL3_SUNLIGHT_REQUIRED and 
-                    level3_rain_collected >= LEVEL3_RAIN_REQUIRED):
-                    # 胜利
-                    step = 33
-                    state_start_time = current_time
-                    level3_game_active = False
-                    # 隐藏游戏界面元素
-                    for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer", "t-sunny", "t-rainy", "1-sourrain", "birdshit", "level3_prompt2"]:
-                        alphas[k] = 0
-                
-                elif level3_sourrain_damage >= LEVEL3_SOURRAIN_TOLERANCE:
-                    # 失败 (酸雨)
-                    step = 32
-                    state_start_time = current_time
-                    level3_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["3-f-l"] = 0
-
-                elif level3_time_left <= 0:
-                    # 失败 (超时)
-                    step = 32
-                    state_start_time = current_time
-                    level3_game_active = False
-                    alphas["1-baselose"] = 0
-                    alphas["3-f-l"] = 0
+                    elif level3_time_left <= 0:
+                        # 失败 (超时)
+                        step = 32
+                        state_start_time = current_time
+                        level3_game_active = False
+                        alphas["1-baselose"] = 0
+                        alphas["3-f-l"] = 0
         
         # Step 32: 第三关失败
         elif step == 32:
@@ -1632,12 +1695,30 @@ def main():
             hand_r_y = center_y 
             blit_alpha("t-r", (hand_r_x, hand_r_y))
 
-            if level1_weather == "sunny":
+            # 根据天气或倒计时绘制覆盖层
+            if is_counting_down:
+                # 倒计时期间保持默认背景色 (或者你可以选择显示 sunny)
+                images["t-sunny"].set_alpha(255)
+                screen.blit(images["t-sunny"], (0, 0))
+            elif level1_weather == "sunny":
                 images["t-sunny"].set_alpha(255)
                 screen.blit(images["t-sunny"], (0, 0))
             elif level1_weather == "rainy":
                 images["t-rainy"].set_alpha(255)
                 screen.blit(images["t-rainy"], (0, 0))
+            
+            # 绘制倒计时蒙版和数字
+            if is_counting_down:
+                overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                overlay.fill((128, 128, 128)) # 灰色
+                overlay.set_alpha(150) # 半透明
+                screen.blit(overlay, (0, 0))
+                
+                time_rem = 3 - int((current_time - countdown_start_time) / 1000)
+                if time_rem > 0:
+                    count_text = countdown_font.render(str(time_rem), True, WHITE)
+                    count_rect = count_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                    screen.blit(count_text, count_rect)
             
             if alphas["level1_number"] > 0:
                 draw_level_number(1, alphas["level1_number"])
@@ -1649,7 +1730,7 @@ def main():
                 draw_progress_bar(level1_sunlight_collected, LEVEL1_SUNLIGHT_REQUIRED, 255, is_rain_damage=False, bar_offset=0)
                 draw_progress_bar(level1_rain_damage, LEVEL1_RAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=1)
             
-            if level1_weather == "rainy" and len(raindrops) > 0:
+            if level1_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
                 raindrop_img.set_alpha(255)
                 for drop in raindrops:
@@ -1669,7 +1750,8 @@ def main():
                 pos_f_y = SCREEN_HEIGHT - images["1-f-l"].get_height() - 200
                 blit_alpha("1-f-l", (pos_f_x, pos_f_y))
                 if alphas["level1_prompt2"] > 0:
-                    draw_tutorial_text("You lost. The seed dies.", alphas["level1_prompt2"])
+                    # 修改后的失败文字
+                    draw_tutorial_text("You lost. The seed dies. Click to try again.", alphas["level1_prompt2"])
 
         # ====================================================
         # 第二关绘制
@@ -1736,7 +1818,10 @@ def main():
             hand_r_y = center_y 
             blit_alpha("t-r", (hand_r_x, hand_r_y))
 
-            if level2_weather == "sunny":
+            if is_counting_down:
+                 images["t-sunny"].set_alpha(255)
+                 screen.blit(images["t-sunny"], (0, 0))
+            elif level2_weather == "sunny":
                 images["t-sunny"].set_alpha(255)
                 screen.blit(images["t-sunny"], (0, 0))
             elif level2_weather == "rainy":
@@ -1749,6 +1834,19 @@ def main():
                 sour_overlay.set_alpha(100) # 半透明
                 screen.blit(sour_overlay, (0, 0))
             
+            # 绘制倒计时蒙版和数字
+            if is_counting_down:
+                overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                overlay.fill((128, 128, 128))
+                overlay.set_alpha(150)
+                screen.blit(overlay, (0, 0))
+                
+                time_rem = 3 - int((current_time - countdown_start_time) / 1000)
+                if time_rem > 0:
+                    count_text = countdown_font.render(str(time_rem), True, WHITE)
+                    count_rect = count_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                    screen.blit(count_text, count_rect)
+
             if alphas["level2_number"] > 0:
                 draw_level_number(2, alphas["level2_number"])
             
@@ -1760,13 +1858,13 @@ def main():
                 draw_progress_bar(level2_rain_collected, LEVEL2_RAIN_REQUIRED, 255, is_rain_damage=False, is_rain_collect=True, bar_offset=1)
                 draw_progress_bar(level2_sourrain_damage, LEVEL2_SOURRAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=2)
             
-            if level2_weather == "rainy" and len(raindrops) > 0:
+            if level2_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
                 raindrop_img.set_alpha(255)
                 for drop in raindrops:
                     screen.blit(raindrop_img, (drop["x"], drop["y"]))
 
-            elif level2_weather == "sourrain" and len(sourraindrops) > 0:
+            elif level2_weather == "sourrain" and len(sourraindrops) > 0 and not is_counting_down:
                 sourraindrop_img = images["sourraindrop"]
                 sourraindrop_img.set_alpha(255)
                 for drop in sourraindrops:
@@ -1787,7 +1885,8 @@ def main():
                 pos_f_y = SCREEN_HEIGHT - images["2-f-l"].get_height() - 200
                 blit_alpha("2-f-l", (pos_f_x, pos_f_y))
                 if alphas["level2_prompt2"] > 0:
-                    draw_tutorial_text("You lost. The bud dies.", alphas["level2_prompt2"])
+                    # 修改后的失败文字
+                    draw_tutorial_text("You lost. The bud dies. Click to try again.", alphas["level2_prompt2"])
 
         # ====================================================
         # 第三关绘制 (NEW)
@@ -1866,7 +1965,10 @@ def main():
             hand_r_y = center_y 
             blit_alpha("t-r", (hand_r_x, hand_r_y))
 
-            if level3_weather == "sunny":
+            if is_counting_down:
+                 images["t-sunny"].set_alpha(255)
+                 screen.blit(images["t-sunny"], (0, 0))
+            elif level3_weather == "sunny":
                 images["t-sunny"].set_alpha(255)
                 screen.blit(images["t-sunny"], (0, 0))
             elif level3_weather == "rainy":
@@ -1878,6 +1980,19 @@ def main():
                 sour_overlay.set_alpha(100) 
                 screen.blit(sour_overlay, (0, 0))
             
+            # 绘制倒计时蒙版和数字
+            if is_counting_down:
+                overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+                overlay.fill((128, 128, 128))
+                overlay.set_alpha(150)
+                screen.blit(overlay, (0, 0))
+                
+                time_rem = 3 - int((current_time - countdown_start_time) / 1000)
+                if time_rem > 0:
+                    count_text = countdown_font.render(str(time_rem), True, WHITE)
+                    count_rect = count_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                    screen.blit(count_text, count_rect)
+
             # 鸟屎绘制
             if bird_active and alphas["birdshit"] > 0:
                 bird_img = images["birdshit"]
@@ -1899,13 +2014,13 @@ def main():
                 draw_progress_bar(level3_rain_collected, LEVEL3_RAIN_REQUIRED, 255, is_rain_damage=False, is_rain_collect=True, bar_offset=1)
                 draw_progress_bar(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=2)
 
-            if level3_weather == "rainy" and len(raindrops) > 0:
+            if level3_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
                 raindrop_img.set_alpha(255)
                 for drop in raindrops:
                     screen.blit(raindrop_img, (drop["x"], drop["y"]))
 
-            elif level3_weather == "sourrain" and len(sourraindrops) > 0:
+            elif level3_weather == "sourrain" and len(sourraindrops) > 0 and not is_counting_down:
                 sourraindrop_img = images["sourraindrop"]
                 sourraindrop_img.set_alpha(255)
                 for drop in sourraindrops:
@@ -1919,7 +2034,8 @@ def main():
             blit_alpha("3-f-l", (pos_f_x, pos_f_y))
             
             if alphas["level3_prompt_fail"] > 0:
-                 draw_tutorial_text("You lost. The flower dies.", alphas["level3_prompt_fail"])
+                 # 修改后的失败文字
+                 draw_tutorial_text("You lost. The flower dies. Click to try again.", alphas["level3_prompt_fail"])
 
         # Step 33 & 34: 最终结局
         elif step == 33 or step == 34:
