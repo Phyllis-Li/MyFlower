@@ -617,7 +617,7 @@ def main():
     state_start_time = pygame.time.get_ticks()
     
     last_mouse_x, _ = pygame.mouse.get_pos() 
-    pygame.mouse.set_visible(False) 
+    pygame.mouse.set_visible(True) 
     
     # --- 开场播放 pic1 ---
     sounds["pic1"].play()
@@ -781,7 +781,7 @@ def main():
                 alphas["5-5"] = min(255, alphas["5-5"] + FADE_SPEED)
             if alphas["5-5"] >= 255 and click_event:
                 reset_tutorial_state()
-                pygame.mouse.set_visible(False) 
+                pygame.mouse.set_visible(True) 
         
         elif step == 9:
             if alphas["t-1"] < 255:
