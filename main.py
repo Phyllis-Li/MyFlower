@@ -566,7 +566,7 @@ def reset_level3():
     level3_time_left = LEVEL3_DURATION
     level3_weather = "sunny"
     level3_weather_timer = 0.0
-    level3_weather_duration = 5.0 # Initial Sunny fixed 5s
+    level3_weather_duration = 6.0 # Initial Sunny fixed 5s
     level3_game_active = False
     is_counting_down = False
     raindrops = []
@@ -1441,7 +1441,7 @@ def main():
                         level3_weather = random.choice(options)
                         
                         if level3_weather == "sunny":
-                            level3_weather_duration = 5.0
+                            level3_weather_duration = 7.0
                             # 重置鸟屎逻辑
                             level3_bird_trigger_time = random.uniform(2.0, 3.0)
                             level3_bird_started = False
@@ -1458,7 +1458,7 @@ def main():
                             level3_bird_started = True
                             level3_bird_finished = False # 确保初始状态为未完成
                             bird_warning_timer = 0
-                            bird_warning_duration = random.uniform(1.0, 1.5)
+                            bird_warning_duration = random.uniform(2.0, 2.5)
                             bird_active = False # 先不激活下落，先激活文字
                             alphas["level3_prompt2"] = 0 
                         
