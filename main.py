@@ -23,7 +23,13 @@ BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 LOW_SAT_WHITE = WHITE
 LOW_SAT_RED = (200, 50, 50)
-DAMAGE_FILLED_COLOR = (120, 120, 120) 
+DAMAGE_FILLED_COLOR = (120, 120, 120) # 灰色，用于血条扣除后的背景
+
+# 新增颜色配置
+TEXT_COLOR = (248, 224, 171)     # f8e0ab
+BOX_COLOR = (84, 68, 52)         # 544434
+TEXT_OUTLINE_COLOR = (0, 0, 0)   # 黑色描边
+LEVEL_TITLE_OUTLINE = (84, 68, 52) # 关卡标题描边
 
 # --- 字体路径 ---
 FONT_PATH = "StoryScript-Regular.ttf" 
@@ -71,12 +77,15 @@ IMG_PATHS = {
     "birdshit": "images/birdshit.png",
     "3-f-l": "images/level3sourrain/3_f.png",
     "E-1": "images/ending/happy.png",
-    "E-2": "images/ending/ending.png"
+    "E-2": "images/ending/ending.png",
+
+    # UI 图标 (新增)
+    "icon_sun": "images/sun.png",
+    "icon_drop": "images/drop.png",
+    "icon_heart": "images/heart.png"
 }
 
-# --- 音效路径清单 (新增) ---
-# 假设音频文件在同级目录或 sounds 文件夹下，这里根据您的描述直接引用文件名
-# 若有文件夹结构，请自行修改路径，例如 "sounds/pic1.mp3"
+# --- 音效路径清单 ---
 SOUND_PATHS = {
     "pic1": "music/pic1.mp3",
     "pic2": "music/pic2.mp3",
@@ -149,11 +158,13 @@ clock = pygame.time.Clock()
 
 try:
     game_font = pygame.font.Font(FONT_PATH, 24)
+    ui_big_font = pygame.font.Font(FONT_PATH, 36) # 新增：48号大字体
     level_font = pygame.font.Font(FONT_PATH, 48)
     countdown_font = pygame.font.Font(FONT_PATH, 120) # 倒计时大字体
 except:
     print(f"提示: 未找到字体 {FONT_PATH}，使用系统默认字体")
     game_font = pygame.font.Font(None, 24)
+    ui_big_font = pygame.font.Font(None, 36) # 新增：默认大字体
     level_font = pygame.font.Font(None, 48)
     countdown_font = pygame.font.Font(None, 120)
 
@@ -168,16 +179,26 @@ def load_img(key, size=None):
         if size:
             w, h = size
         else:
-            w, h = (SCREEN_WIDTH, SCREEN_HEIGHT) if "1" in key or "4" in key or "-1" in key or "5-5" in key or key=="t-1" or "E-" in key else (200, 200)
+            if "icon" in key:
+                w, h = 40, 40 # 默认图标大小
+            elif "1" in key or "4" in key or "-1" in key or "5-5" in key or key=="t-1" or "E-" in key:
+                w, h = SCREEN_WIDTH, SCREEN_HEIGHT
+            else:
+                w, h = 200, 200
         
         img = pygame.Surface((w, h))
         # 红色或蓝色色块
         color = (50, 50, 150) if "-1" in key or len(key)==1 else (150, 50, 50)
+        if "icon_sun" in key: color = (255, 200, 0)
+        if "icon_drop" in key: color = (50, 150, 255)
+        if "icon_heart" in key: color = (200, 50, 50)
+        
         img.fill(color)
         
-        text = game_font.render(f"IMG {key}", True, WHITE)
-        text_rect = text.get_rect(center=(w//2, h//2))
-        img.blit(text, text_rect)
+        if "icon" not in key:
+            text = game_font.render(f"IMG {key}", True, WHITE)
+            text_rect = text.get_rect(center=(w//2, h//2))
+            img.blit(text, text_rect)
     return img
 
 # 加载音效函数
@@ -210,78 +231,204 @@ def play_bgm():
 def stop_bgm_fadeout():
     pygame.mixer.music.fadeout(2000)
 
-def draw_progress_bar(current, required, text_alpha, is_rain_damage=False, is_rain_collect=False, bar_offset=0):
-    BAR_WIDTH = 400
-    BAR_HEIGHT = 20
-    BAR_X = (SCREEN_WIDTH - BAR_WIDTH) // 2
-    BAR_Y = SCREEN_HEIGHT - 150 + (bar_offset * 60)  
+# --------------------------------------------------------------------------
+# UI 绘制辅助函数 (修改：增加缓存以解决卡顿)
+# --------------------------------------------------------------------------
+
+# 全局文字表面缓存
+# Key: (content, style_type)
+# Value: Rendered Surface (without alpha)
+_text_surface_cache = {}
+
+def get_cached_text_box_surface(content, style, font=None):
+    """
+    获取缓存的文字框Surface
+    增加 font 参数支持自定义字体
+    """
+    use_font = font if font else game_font
+
+    cache_key = (content, style, use_font)
+    if cache_key in _text_surface_cache:
+        return _text_surface_cache[cache_key]
     
-    if is_rain_damage:
-        damage_accumulated = current
-        protection_remaining = required - damage_accumulated
-        damage_ratio = damage_accumulated / required 
-        
-        bar_text = "damage"
-        text_time = f"{protection_remaining:.1f}s / {required:.0f}s" 
-        
-        pygame.draw.rect(screen, LOW_SAT_RED, (BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT), 0, 5)
-        
-        damage_width = int(BAR_WIDTH * damage_ratio)
-        damage_x = BAR_X + BAR_WIDTH - damage_width 
-        
-        if damage_width > 0:
-             pygame.draw.rect(screen, DAMAGE_FILLED_COLOR, (damage_x, BAR_Y, damage_width, BAR_HEIGHT), 0, 5) 
+    # --- 创建新的 Surface ---
+    max_text_width = 800 if style == "center_bottom" else 600
+    lines = wrap_text(content, use_font, max_text_width)
     
-    elif is_rain_collect:
-        progress_ratio = current / required
-        fill_width = int(BAR_WIDTH * progress_ratio)
-        fill_color = (50, 150, 255) 
-        bar_text = "rain"
-        elapsed_time = f"{current:.1f}"
-        text_time = f"{elapsed_time}s / {required:.0f}s"
-        
-        pygame.draw.rect(screen, (70, 70, 70), (BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT), 0, 5)
-        pygame.draw.rect(screen, fill_color, (BAR_X, BAR_Y, fill_width, BAR_HEIGHT), 0, 5)
-        
-    else:
-        progress_ratio = current / required
-        fill_width = int(BAR_WIDTH * progress_ratio)
-        fill_color = (255, 200, 0) 
-        bar_text = "sun"
-        elapsed_time = f"{current:.1f}"
-        text_time = f"{elapsed_time}s / {required:.0f}s"
-        
-        pygame.draw.rect(screen, (70, 70, 70), (BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT), 0, 5)
-        pygame.draw.rect(screen, fill_color, (BAR_X, BAR_Y, fill_width, BAR_HEIGHT), 0, 5)
+    line_height = use_font.get_height()
+    total_text_h = len(lines) * line_height
+    total_text_w = 0
+    for line in lines:
+        w, _ = use_font.size(line)
+        total_text_w = max(total_text_w, w)
+    
+    # === 修改点开始 ===
+    # 减小内边距数值 (原为 20 和 15)
+    padding_x = 7 
+    padding_y = 0
+    # === 修改点结束 ===
+    
+    box_w = total_text_w + padding_x * 2 + 10 
+    box_h = total_text_h + padding_y * 2
+    
+    box_surface = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    
+    bg_rect = pygame.Rect(0, 0, box_w - 10, box_h)
+    box_surface.fill(BOX_COLOR, bg_rect)
+    
+    for i, line in enumerate(lines):
+        line_y = padding_y + i * line_height
+        line_x = padding_x
+        draw_text_with_outline_and_shadow(box_surface, line, use_font, TEXT_COLOR, TEXT_OUTLINE_COLOR, (line_x, line_y), 1)
+    
+    _text_surface_cache[cache_key] = box_surface
+    return box_surface
 
-    pygame.draw.rect(screen, (255, 255, 255), (BAR_X, BAR_Y, BAR_WIDTH, BAR_HEIGHT), 2, 5)
+def draw_text_with_outline_and_shadow(surface, text, font, color, outline_color, pos, outline_width=3):
+    """绘制带描边和投影的文字"""
+    text_surf = font.render(text, True, color)
+    
+    # 投影 (Shadow)
+    shadow_surf = font.render(text, True, BLACK)
+    surface.blit(shadow_surf, (pos[0] + 2, pos[1] + 3))
+    
+    # 描边 (Outline) - 8方向绘制
+    for dx in range(-outline_width, outline_width + 1):
+        for dy in range(-outline_width, outline_width + 1):
+            if dx != 0 or dy != 0:
+                outline_surf = font.render(text, True, outline_color)
+                surface.blit(outline_surf, (pos[0] + dx, pos[1] + dy))
+    
+    # 正常文字
+    surface.blit(text_surf, pos)
+    return text_surf.get_size()
 
-    text_bar = game_font.render(bar_text, True, WHITE)
-    text_bar.set_alpha(text_alpha)
-    screen.blit(text_bar, (BAR_X - text_bar.get_width() - 10, BAR_Y + BAR_HEIGHT // 2 - text_bar.get_height() // 2))
+def wrap_text(text, font, max_width):
+    """简单的文字换行处理"""
+    words = text.split(' ')
+    lines = []
+    current_line = []
+    
+    for word in words:
+        test_line = ' '.join(current_line + [word])
+        w, h = font.size(test_line)
+        if w < max_width:
+            current_line.append(word)
+        else:
+            lines.append(' '.join(current_line))
+            current_line = [word]
+    lines.append(' '.join(current_line))
+    return lines
 
-    text_timer = game_font.render(text_time, True, WHITE)
-    text_timer.set_alpha(text_alpha)
-    screen.blit(text_timer, (BAR_X + BAR_WIDTH + 10, BAR_Y + BAR_HEIGHT // 2 - text_timer.get_height() // 2))
+def draw_styled_text_box(content, alpha, style="center_bottom", font=None, offset=(0, 0)):
+    """
+    绘制带背景框的样式化文字
+    新增 font: 指定字体
+    新增 offset: (x, y) 坐标偏移量
+    """
+    if alpha <= 0: return
 
-def draw_tutorial_text(content, alpha):
-    text_surf = game_font.render(content, True, LOW_SAT_WHITE)
-    text_surf.set_alpha(alpha)
-    text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
-    screen.blit(text_surf, text_rect)
-
-def draw_top_text(content, alpha):
-    """专门用于显示在顶部的提示文字"""
-    text_surf = game_font.render(content, True, LOW_SAT_WHITE)
-    text_surf.set_alpha(alpha)
-    text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, 50)) # 顶部 y=50
-    screen.blit(text_surf, text_rect)
+    # 传递 font 给缓存函数
+    box_surface = get_cached_text_box_surface(content, style, font)
+    
+    box_w = box_surface.get_width()
+    box_h = box_surface.get_height()
+    
+    # 确定绘制位置并应用偏移
+    if style == "bottom_left":
+        box_x = 40 + offset[0]
+        box_y = SCREEN_HEIGHT - box_h - 40 + offset[1]
+    else: # center_bottom
+        box_x = (SCREEN_WIDTH - box_w) // 2 + offset[0]
+        box_y = SCREEN_HEIGHT - box_h - 40 + offset[1] 
+    
+    box_surface.set_alpha(alpha)
+    screen.blit(box_surface, (box_x, box_y))
 
 def draw_level_text(content, alpha):
-    text_surf = level_font.render(content, True, WHITE)
+    """绘制关卡大标题 (Level X)"""
+    if alpha <= 0: return
+    # 创建临时 surface 以支持透明度
+    w, h = level_font.size(content)
+    # 留足空间给描边
+    surf = pygame.Surface((w + 20, h + 20), pygame.SRCALPHA)
+    
+    # 修正：颜色强制改为 WHITE
+    draw_text_with_outline_and_shadow(surf, content, level_font, WHITE, LEVEL_TITLE_OUTLINE, (10, 10), 3)
+    
+    surf.set_alpha(alpha)
+    rect = surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 180)) # 位置稍微上调避开底部文字框
+    screen.blit(surf, rect)
+
+def draw_progress_bar_custom(current, required, alpha, icon_key, x, y, width=350, height=20, is_damage=False):
+    """
+    绘制带图标的进度条
+    x, y: 进度条左上角坐标
+    """
+    if alpha <= 0: return
+
+    # 绘制图标
+    icon = images[icon_key]
+    # 图标位置：进度条左侧
+    icon_x = x - 50
+    icon_y = y + height // 2 - icon.get_height() // 2
+    
+    # 设置图标透明度
+    icon.set_alpha(alpha)
+    screen.blit(icon, (icon_x, icon_y))
+    
+    bar_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    
+    if is_damage:
+        # --- 血条模式逻辑 ---
+        # 1. 绘制全灰背景 (代表已损失的血量/空槽)
+        pygame.draw.rect(bar_surf, DAMAGE_FILLED_COLOR, (0, 0, width, height), 0, 5) 
+        
+        # 2. 计算剩余血量 (红色)
+        # current 是 accumulated damage (已受伤害)
+        # required 是 tolerance (最大承受伤害)
+        damage_ratio = current / required
+        remaining_ratio = 1.0 - damage_ratio
+        remaining_ratio = max(0.0, min(1.0, remaining_ratio))
+        
+        red_width = int(width * remaining_ratio)
+        
+        # 3. 绘制红色条 (靠左对齐，代表剩余生命)
+        if red_width > 0:
+            pygame.draw.rect(bar_surf, (200, 50, 50), (0, 0, red_width, height), 0, 5)
+            
+        # 4. 边框
+        pygame.draw.rect(bar_surf, (255, 255, 255), (0, 0, width, height), 2, 5)
+        
+        # 文字时间 (剩余可承受秒数)
+        time_left_val = max(0, required - current)
+        text_time = f"{time_left_val:.1f}s"
+        
+    else: # 收集类 (阳光/雨水)
+        progress_ratio = current / required
+        progress_ratio = min(1.0, progress_ratio)
+        fill_width = int(width * progress_ratio)
+        
+        fill_color = (255, 200, 0) if "sun" in icon_key else (50, 150, 255)
+        
+        # 背景 (深灰)
+        pygame.draw.rect(bar_surf, (70, 70, 70), (0, 0, width, height), 0, 5)
+        # 填充
+        pygame.draw.rect(bar_surf, fill_color, (0, 0, fill_width, height), 0, 5)
+        # 边框
+        pygame.draw.rect(bar_surf, (255, 255, 255), (0, 0, width, height), 2, 5)
+        
+        # 修改：增加 's' 单位
+        text_time = f"{current:.1f}s/{required:.0f}s"
+
+    bar_surf.set_alpha(alpha)
+    screen.blit(bar_surf, (x, y))
+
+    # 绘制数值文字 (右侧)
+    text_surf = game_font.render(text_time, True, WHITE)
     text_surf.set_alpha(alpha)
-    text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 150))
-    screen.blit(text_surf, text_rect)
+    screen.blit(text_surf, (x + width + 10, y + height // 2 - text_surf.get_height() // 2))
+
 
 def draw_game_timer(time_left, alpha):
     text_surf = game_font.render(f"Time: {time_left:.1f}s", True, WHITE)
@@ -295,6 +442,10 @@ def draw_level_number(level, alpha):
     text_rect = text_surf.get_rect(topleft=(20, 20))
     screen.blit(text_surf, text_rect)
 
+def draw_top_text(content, alpha):
+    """专门用于显示在顶部的提示文字 (鸟来了)"""
+    draw_styled_text_box(content, alpha, style="center_bottom") # 暂时复用底部样式逻辑，或者单独写
+
 images = {}
 GLOBAL_SCALE_FACTOR = 0.5 
 all_keys = list(IMG_PATHS.keys())
@@ -304,10 +455,14 @@ for key in all_keys:
         original_width = img.get_width()
         original_height = img.get_height()
         
-        new_width = int(original_width * GLOBAL_SCALE_FACTOR)
-        new_height = int(original_height * GLOBAL_SCALE_FACTOR)
+        # 图标不缩放，其他缩放
+        if "icon" in key:
+            images[key] = pygame.transform.scale(img, (40, 40))
+        else:
+            new_width = int(original_width * GLOBAL_SCALE_FACTOR)
+            new_height = int(original_height * GLOBAL_SCALE_FACTOR)
+            images[key] = pygame.transform.smoothscale(img, (new_width, new_height))
         
-        images[key] = pygame.transform.smoothscale(img, (new_width, new_height))
         # 如果是鸟屎图片，顺带旋转大约 25 度（逆时针旋转）以匹配斜向右下的轨迹
         if key == "birdshit":
             images[key] = pygame.transform.rotate(images[key], 25)
@@ -321,6 +476,14 @@ if "t-f" in images:
     new_height = int(original_height * (1 + 1/3))
     
     images["t-f"] = pygame.transform.smoothscale(flower_img, (new_width, new_height))
+    
+    # --- 修复卡顿关键：预先生成 Intro 用的缩放版花朵 ---
+    # 在 intro 中会以 2/3 大小显示 t-f (即 "2-f" 等大小)
+    # 我们这里提前生成一个 t-f 的缩放副本
+    intro_scale_ratio = 2/3
+    intro_w = int(images["t-f"].get_width() * intro_scale_ratio)
+    intro_h = int(images["t-f"].get_height() * intro_scale_ratio)
+    images["t-f-intro-scaled"] = pygame.transform.smoothscale(images["t-f"], (intro_w, intro_h))
 
 # ==========================================
 # 3. 游戏状态管理
@@ -344,58 +507,36 @@ alphas = {k: 0 for k in IMG_PATHS.keys()}
 for k in IMG_PATHS.keys():
     alphas[k] = 0
 
-alphas["t-1"] = 0
-alphas["t-l"] = 0
-alphas["t-r"] = 0
-alphas["t-f"] = 0
-alphas["t-m"] = 0
-alphas["t-a"] = 0
+# 单独添加 level intro text 的 alpha 控制
 alphas["text_step1"] = 0 
-alphas["t-sunny"] = 0 
-alphas["t-rainy"] = 0 
-
 alphas["prompt_sunlight"] = 0 
 alphas["prompt_rain"] = 0 
 alphas["prompt_success"] = 0 
 
 # Level 1 Alpha
-alphas["1-sunny"] = 0
-alphas["1-rainy"] = 0
-alphas["1-baselose"] = 0
-alphas["1-f-l"] = 0
-alphas["2-f"] = 0
 alphas["level1_text"] = 0
-alphas["level1_prompt1"] = 0
-alphas["level1_prompt2"] = 0
+alphas["level1_intro_text"] = 0 # 统一的介绍文字
 alphas["level1_number"] = 0
 alphas["level1_timer"] = 0
 
 # Level 2 Alpha
-alphas["1-sourrain"] = 0
-alphas["2-f-l"] = 0
-alphas["3-f"] = 0
 alphas["level2_text"] = 0
-alphas["level2_prompt1"] = 0
-alphas["level2_prompt2"] = 0
-alphas["level2_prompt3"] = 0
+alphas["level2_intro_text"] = 0 # 统一的介绍文字
 alphas["level2_number"] = 0
 alphas["level2_timer"] = 0
 
 # Level 3 Alpha
 alphas["level3_text"] = 0
-alphas["level3_prompt1"] = 0 # 鸟屎介绍
-alphas["level3_prompt2"] = 0 # 鸟经过提示
-alphas["level3_prompt_rain"] = 0 # 雨天介绍
-alphas["level3_prompt_sour"] = 0 # 酸雨介绍
+alphas["level3_intro_text"] = 0 # 统一的介绍文字
 alphas["level3_number"] = 0
 alphas["level3_timer"] = 0
-alphas["birdshit"] = 0
-alphas["3-f-l"] = 0
-alphas["E-1"] = 0
-alphas["E-2"] = 0
 alphas["level3_prompt_fail"] = 0
 alphas["ending_text_1"] = 0
 alphas["ending_text_2"] = 0
+
+# 失败提示单独控制
+alphas["prompt_fail_l1"] = 0
+alphas["prompt_fail_l2"] = 0
 
 alphas["fade_layer"] = 0 
 is_restarting = False
@@ -493,20 +634,9 @@ def reset_tutorial_state():
     step = 9
     state_start_time = pygame.time.get_ticks() 
     
-    for k in ["1", "2-1", "2-2", "3-1", "3-2", "4", "5-1", "5-2", "5-3", "5-4", "5-5"]:
+    for k in alphas:
         alphas[k] = 0
         
-    alphas["t-1"] = 0
-    alphas["t-l"] = 0
-    alphas["t-r"] = 0
-    alphas["t-f"] = 0
-    alphas["t-m"] = 0
-    alphas["t-a"] = 0
-    alphas["t-sunny"] = 0 
-    alphas["t-rainy"] = 0 
-    alphas["prompt_sunlight"] = 0
-    alphas["prompt_rain"] = 0
-    alphas["prompt_success"] = 0
     alphas["fade_layer"] = 0 
     
     arm_position_offset = 0
@@ -657,13 +787,29 @@ def main():
                 for key in alphas:
                     alphas[key] = 0
 
-            # NEW: R 键跳转到第三关
+            # R 键跳转到第三关
             if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                 step = 27
                 state_start_time = current_time
                 reset_level3()
                 for key in alphas:
                     alphas[key] = 0
+
+            # T 键调试：直接跳转到最终结局
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_t:
+                print("DEBUG: Jumping to Ending Sequence")
+                stop_all_environment_sounds()
+                stop_bgm_fadeout()
+                sounds["ending"].play(fade_ms=2000)
+                
+                step = 34
+                state_start_time = current_time
+                for key in alphas:
+                    alphas[key] = 0
+                
+                # 直接设置结局图片和文字可见
+                alphas["E-2"] = 255
+                alphas["ending_text_2"] = 255
                 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: 
@@ -910,7 +1056,7 @@ def main():
                             alphas[key] = 0
 
         # ====================================================
-        # 第一关开场流程
+        # 第一关开场流程 (修改: 自动播放)
         # ====================================================
         elif step == 16:
             if alphas["1-sunny"] < 255:
@@ -918,9 +1064,11 @@ def main():
                 alphas["level1_text"] = min(255, alphas["level1_text"] + FADE_SPEED)
             
             if alphas["1-sunny"] >= 255 and alphas["level1_text"] >= 255:
-                if alphas["level1_prompt1"] < 255:
-                    alphas["level1_prompt1"] = min(255, alphas["level1_prompt1"] + FADE_SPEED)
-                if alphas["level1_prompt1"] >= 255 and click_event:
+                if alphas["level1_intro_text"] < 255:
+                    alphas["level1_intro_text"] = min(255, alphas["level1_intro_text"] + FADE_SPEED)
+                
+                # 修改：2s 后自动进入下一步
+                if alphas["level1_intro_text"] >= 255 and time_since_step > 3000: # 留足淡入时间+2s阅读
                     step = 17
                     state_start_time = current_time
         
@@ -930,43 +1078,38 @@ def main():
             if alphas["1-rainy"] < 255:
                 alphas["1-rainy"] = min(255, alphas["1-rainy"] + FADE_SPEED)
                 if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
-                     update_environment_sound("rainy") # 介绍页开始下雨音效
+                     update_environment_sound("rainy") 
 
-            
-            if alphas["1-rainy"] >= 255:
-                if alphas["level1_prompt1"] > 0:
-                    alphas["level1_prompt1"] = max(0, alphas["level1_prompt1"] - FADE_SPEED)
-                if alphas["level1_prompt2"] < 255:
-                    alphas["level1_prompt2"] = min(255, alphas["level1_prompt2"] + FADE_SPEED)
-                if alphas["level1_prompt2"] >= 255 and click_event:
-                    step = 18
-                    state_start_time = current_time
+            # 修改：停留时间改为 4000 (4s)
+            if alphas["1-rainy"] >= 255 and time_since_step > 4000:
+                step = 18
+                state_start_time = current_time
         
         elif step == 18:
             fade_out_complete = True
             if current_environment_sound is not None:
-                stop_all_environment_sounds() # 介绍结束，淡出雨声
+                stop_all_environment_sounds() 
 
-            for key in ["1-sunny", "1-rainy", "level1_text", "level1_prompt1", "level1_prompt2"]:
+            for key in ["1-sunny", "1-rainy", "level1_text", "level1_intro_text"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
                     fade_out_complete = False
             
+            # 修改：淡出完成后自动进入下一步
             if fade_out_complete:
                 step = 19
                 state_start_time = current_time
                 reset_level1()
-                # 开启倒计时模式
                 is_counting_down = True
                 countdown_start_time = current_time
-                level1_game_active = False # 暂时不激活
+                level1_game_active = False 
                 alphas["t-1"] = 0
                 alphas["t-l"] = 0
                 alphas["t-r"] = 0
                 alphas["t-f"] = 0
                 alphas["level1_number"] = 0
                 alphas["level1_timer"] = 0
-                sounds["countbackward"].play() # 倒计时音效
+                sounds["countbackward"].play() 
         
         # 第一关游戏进行中
         elif step == 19:
@@ -981,7 +1124,7 @@ def main():
                 if elapsed > 3000: # 3秒倒计时结束
                     is_counting_down = False
                     level1_game_active = True
-                    last_mouse_x = current_mouse_x # 防止倒计时结束后鼠标瞬移
+                    last_mouse_x = current_mouse_x 
             else:
                 # 倒计时结束后，渐显 UI 元素
                 for k in ["level1_number", "level1_timer"]:
@@ -1024,7 +1167,7 @@ def main():
                         level1_game_active = False
                         alphas["2-f"] = 0
                         stop_all_environment_sounds()
-                        sounds["pass"].play() # 第一关成功
+                        sounds["pass"].play() 
                     elif level1_rain_damage >= LEVEL1_RAIN_TOLERANCE:
                         step = 20
                         state_start_time = current_time
@@ -1032,7 +1175,7 @@ def main():
                         alphas["1-baselose"] = 0
                         alphas["1-f-l"] = 0
                         stop_all_environment_sounds()
-                        sounds["fail"].play() # 第一关失败
+                        sounds["fail"].play() 
                     elif level1_time_left <= 0:
                         step = 20
                         state_start_time = current_time
@@ -1040,7 +1183,7 @@ def main():
                         alphas["1-baselose"] = 0
                         alphas["1-f-l"] = 0
                         stop_all_environment_sounds()
-                        sounds["fail"].play() # 第一关失败
+                        sounds["fail"].play() 
         
         # 第一关结算
         elif step == 20:
@@ -1050,9 +1193,9 @@ def main():
                 if alphas["2-f"] < 255:
                     alphas["2-f"] = min(255, alphas["2-f"] + FADE_SPEED)
                 if alphas["2-f"] >= 255:
-                    if alphas["level1_prompt1"] < 255:
-                        alphas["level1_prompt1"] = min(255, alphas["level1_prompt1"] + FADE_SPEED)
-                if alphas["level1_prompt1"] >= 255 and click_event:
+                    if alphas["level1_intro_text"] < 255: # 复用介绍变量显示通关文字
+                        alphas["level1_intro_text"] = min(255, alphas["level1_intro_text"] + FADE_SPEED)
+                if alphas["level1_intro_text"] >= 255 and click_event:
                     step = 21
                     state_start_time = current_time
                     for key in alphas:
@@ -1066,16 +1209,16 @@ def main():
                 if alphas["1-f-l"] < 255:
                     alphas["1-f-l"] = min(255, alphas["1-f-l"] + FADE_SPEED)
                 if alphas["1-baselose"] >= 255 and alphas["1-f-l"] >= 255:
-                    if alphas["level1_prompt2"] < 255:
-                        alphas["level1_prompt2"] = min(255, alphas["level1_prompt2"] + FADE_SPEED)
-                if alphas["level1_prompt2"] >= 255 and click_event:
+                    if alphas["prompt_fail_l1"] < 255:
+                        alphas["prompt_fail_l1"] = min(255, alphas["prompt_fail_l1"] + FADE_SPEED)
+                if alphas["prompt_fail_l1"] >= 255 and click_event:
                     step = 16
                     state_start_time = current_time
                     for key in alphas:
                         alphas[key] = 0
         
         # ====================================================
-        # 第二关开场流程
+        # 第二关开场流程 (修改: 自动播放)
         # ====================================================
         elif step == 21:
             if alphas["1-sunny"] < 255:
@@ -1083,9 +1226,11 @@ def main():
                 alphas["level2_text"] = min(255, alphas["level2_text"] + FADE_SPEED)
             
             if alphas["1-sunny"] >= 255 and alphas["level2_text"] >= 255:
-                if alphas["level2_prompt1"] < 255:
-                    alphas["level2_prompt1"] = min(255, alphas["level2_prompt1"] + FADE_SPEED)
-                if alphas["level2_prompt1"] >= 255 and click_event:
+                if alphas["level2_intro_text"] < 255:
+                    alphas["level2_intro_text"] = min(255, alphas["level2_intro_text"] + FADE_SPEED)
+                
+                # 修改：2s 后自动进入下一步
+                if alphas["level2_intro_text"] >= 255 and time_since_step > 3000:
                     step = 22
                     state_start_time = current_time
         
@@ -1095,16 +1240,12 @@ def main():
             if alphas["1-rainy"] < 255:
                 alphas["1-rainy"] = min(255, alphas["1-rainy"] + FADE_SPEED)
                 if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
-                    update_environment_sound("rainy") # 介绍页开始下雨音效
+                    update_environment_sound("rainy") 
             
-            if alphas["1-rainy"] >= 255:
-                if alphas["level2_prompt1"] > 0:
-                    alphas["level2_prompt1"] = max(0, alphas["level2_prompt1"] - FADE_SPEED)
-                if alphas["level2_prompt2"] < 255:
-                    alphas["level2_prompt2"] = min(255, alphas["level2_prompt2"] + FADE_SPEED)
-                if alphas["level2_prompt2"] >= 255 and click_event:
-                    step = 23
-                    state_start_time = current_time
+            # 修改：停留时间改为 4000 (4s)
+            if alphas["1-rainy"] >= 255 and time_since_step > 4000:
+                step = 23
+                state_start_time = current_time
         
         elif step == 23:
             if alphas["1-rainy"] > 0:
@@ -1112,23 +1253,19 @@ def main():
             if alphas["1-sourrain"] < 255:
                 alphas["1-sourrain"] = min(255, alphas["1-sourrain"] + FADE_SPEED)
                 if alphas["1-sourrain"] > 50 and current_environment_sound != "sourrain":
-                    update_environment_sound("sourrain") # 介绍页酸雨音效
+                    update_environment_sound("sourrain") 
             
-            if alphas["1-sourrain"] >= 255:
-                if alphas["level2_prompt2"] > 0:
-                    alphas["level2_prompt2"] = max(0, alphas["level2_prompt2"] - FADE_SPEED)
-                if alphas["level2_prompt3"] < 255:
-                    alphas["level2_prompt3"] = min(255, alphas["level2_prompt3"] + FADE_SPEED)
-                if alphas["level2_prompt3"] >= 255 and click_event:
-                    step = 24
-                    state_start_time = current_time
+            # 修改：停留时间改为 4000 (4s)
+            if alphas["1-sourrain"] >= 255 and time_since_step > 4000: 
+                step = 24
+                state_start_time = current_time
         
         elif step == 24:
             fade_out_complete = True
             if current_environment_sound is not None:
                 stop_all_environment_sounds()
 
-            for key in ["1-sunny", "1-rainy", "1-sourrain", "level2_text", "level2_prompt1", "level2_prompt2", "level2_prompt3"]:
+            for key in ["1-sunny", "1-rainy", "1-sourrain", "level2_text", "level2_intro_text"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
                     fade_out_complete = False
@@ -1137,7 +1274,6 @@ def main():
                 step = 25
                 state_start_time = current_time
                 reset_level2()
-                # 开启倒计时模式
                 is_counting_down = True
                 countdown_start_time = current_time
                 level2_game_active = False
@@ -1147,7 +1283,7 @@ def main():
                 alphas["2-f"] = 0  
                 alphas["level2_number"] = 0
                 alphas["level2_timer"] = 0
-                sounds["countbackward"].play() # 倒计时音效
+                sounds["countbackward"].play() 
         
         # 第二关游戏进行中
         elif step == 25:
@@ -1239,9 +1375,9 @@ def main():
                 if alphas["3-f"] < 255:
                     alphas["3-f"] = min(255, alphas["3-f"] + FADE_SPEED)
                 if alphas["3-f"] >= 255:
-                    if alphas["level2_prompt1"] < 255:
-                        alphas["level2_prompt1"] = min(255, alphas["level2_prompt1"] + FADE_SPEED)
-                if alphas["level2_prompt1"] >= 255 and click_event:
+                    if alphas["level2_intro_text"] < 255:
+                        alphas["level2_intro_text"] = min(255, alphas["level2_intro_text"] + FADE_SPEED)
+                if alphas["level2_intro_text"] >= 255 and click_event:
                     # 进入第三关
                     print("第二关完成，进入第三关。")
                     step = 27
@@ -1258,67 +1394,56 @@ def main():
                 if alphas["2-f-l"] < 255:
                     alphas["2-f-l"] = min(255, alphas["2-f-l"] + FADE_SPEED)
                 if alphas["1-baselose"] >= 255 and alphas["2-f-l"] >= 255:
-                    if alphas["level2_prompt2"] < 255:
-                        alphas["level2_prompt2"] = min(255, alphas["level2_prompt2"] + FADE_SPEED)
-                if alphas["level2_prompt2"] >= 255 and click_event:
+                    if alphas["prompt_fail_l2"] < 255:
+                        alphas["prompt_fail_l2"] = min(255, alphas["prompt_fail_l2"] + FADE_SPEED)
+                if alphas["prompt_fail_l2"] >= 255 and click_event:
                     step = 21
                     state_start_time = current_time
                     for key in alphas:
                         alphas[key] = 0
 
         # ====================================================
-        # 第三关流程
+        # 第三关流程 (修改: 自动播放)
         # ====================================================
 
-        # Step 27: 第三关开场 (Sunny + Text) - 等待点击
+        # Step 27: 第三关开场 (Sunny + Text)
         elif step == 27:
             if alphas["1-sunny"] < 255:
                 alphas["1-sunny"] = min(255, alphas["1-sunny"] + FADE_SPEED)
                 alphas["level3_text"] = min(255, alphas["level3_text"] + FADE_SPEED)
-                # 使用 level3_prompt_rain 作为 Sunny 介绍文字
-                if alphas["level3_prompt_rain"] < 255:
-                     alphas["level3_prompt_rain"] = min(255, alphas["level3_prompt_rain"] + FADE_SPEED)
+                if alphas["level3_intro_text"] < 255:
+                     alphas["level3_intro_text"] = min(255, alphas["level3_intro_text"] + FADE_SPEED)
 
-            if alphas["1-sunny"] >= 255 and alphas["level3_prompt_rain"] >= 255 and click_event:
+            # 修改：2s 后自动进入下一步
+            if alphas["level3_intro_text"] >= 255 and time_since_step > 3000:
                 step = 28
                 state_start_time = current_time
                 bird_intro_y = -50
-                # --- 修改开始 ---
-                # 让起始 X 坐标在屏幕中心偏左 200 像素的位置
                 bird_intro_x = (SCREEN_WIDTH // 2) - 200 
-                # --- 修改结束 ---
                 bird_intro_active = False
                 alphas["birdshit"] = 0
-                alphas["level3_prompt_rain"] = 0
         
-        # Step 28: 鸟屎介绍 - 等待点击
+        # Step 28: 鸟屎介绍 (保持原逻辑，鸟屎动画结束后自动跳转)
         elif step == 28:
-            # 1. 显示文字
-            if alphas["level3_prompt1"] < 255:
-                alphas["level3_prompt1"] = min(255, alphas["level3_prompt1"] + FADE_SPEED)
-            
-            # 2. 文字显示完全后，等待1s，然后开始掉鸟屎
-            if alphas["level3_prompt1"] >= 255:
-                if not bird_intro_active:
-                    if time_since_step > 1000: # 1s delay
-                        bird_intro_active = True
-                        alphas["birdshit"] = 255
-                else:
-                    # 鸟屎下落
-                    bird_intro_y += BIRD_DROP_SPEED
-                    # 增加 X 坐标，形成斜向右下的轨迹 (水平速度为垂直速度的一半)
-                    bird_intro_x += BIRD_DROP_SPEED * 0.5 
-                    # 下落到屏幕中间开始渐隐
-                    if bird_intro_y > SCREEN_HEIGHT // 2 - 100:
-                         if alphas["birdshit"] > 0:
-                             alphas["birdshit"] = max(0, alphas["birdshit"] - BIRD_FADE_SPEED)
-                    
-                    if (bird_intro_y > SCREEN_HEIGHT or alphas["birdshit"] == 0) and click_event:
-                        step = 29
-                        state_start_time = current_time
-                        alphas["level3_prompt1"] = 0
+            if not bird_intro_active:
+                 if time_since_step > 500: # 稍微减少等待时间
+                    bird_intro_active = True
+                    alphas["birdshit"] = 255
+            else:
+                # 鸟屎下落
+                bird_intro_y += BIRD_DROP_SPEED
+                bird_intro_x += BIRD_DROP_SPEED * 0.5 
+                
+                if bird_intro_y > SCREEN_HEIGHT // 2 - 100:
+                        if alphas["birdshit"] > 0:
+                            alphas["birdshit"] = max(0, alphas["birdshit"] - BIRD_FADE_SPEED)
+                
+                # 修改：动画结束自动跳转
+                if bird_intro_y > SCREEN_HEIGHT or alphas["birdshit"] == 0:
+                    step = 29
+                    state_start_time = current_time
 
-        # Step 29: 切换到 Rainy - 等待点击
+        # Step 29: 切换到 Rainy
         elif step == 29:
             # Sunny 渐隐
             if alphas["1-sunny"] > 0:
@@ -1330,17 +1455,12 @@ def main():
                 if alphas["1-rainy"] > 50 and current_environment_sound != "rainy":
                     update_environment_sound("rainy")
             
-            # Rainy 文字
-            if alphas["1-rainy"] >= 255:
-                if alphas["level3_prompt2"] < 255: # 复用变量 prompt2 给Rainy介绍
-                    alphas["level3_prompt2"] = min(255, alphas["level3_prompt2"] + FADE_SPEED)
-                
-                if alphas["level3_prompt2"] >= 255 and click_event:
-                    step = 29.5 
-                    state_start_time = current_time
-                    alphas["level3_prompt2"] = 0
+            # 修改：停留时间改为 4000 (4s)
+            if alphas["1-rainy"] >= 255 and time_since_step > 4000:
+                step = 29.5 
+                state_start_time = current_time
 
-        # Step 29.5: 切换到 Sourrain - 等待点击
+        # Step 29.5: 切换到 Sourrain
         elif step == 29.5:
              # Rainy 渐隐, Sourrain 渐显
             if alphas["1-rainy"] > 0:
@@ -1350,15 +1470,10 @@ def main():
                  if alphas["1-sourrain"] > 50 and current_environment_sound != "sourrain":
                      update_environment_sound("sourrain")
             
-            # Sourrain 文字
-            if alphas["1-sourrain"] >= 255:
-                if alphas["level3_prompt_sour"] < 255:
-                    alphas["level3_prompt_sour"] = min(255, alphas["level3_prompt_sour"] + FADE_SPEED)
-
-                if alphas["level3_prompt_sour"] >= 255 and click_event:
-                    step = 30
-                    state_start_time = current_time
-                    alphas["level3_prompt_sour"] = 0
+            # 修改：停留时间改为 4000 (4s)
+            if alphas["1-sourrain"] >= 255 and time_since_step > 4000:
+                step = 30
+                state_start_time = current_time
 
         # Step 30: 准备开始
         elif step == 30:
@@ -1366,7 +1481,7 @@ def main():
             if current_environment_sound is not None:
                 stop_all_environment_sounds()
 
-            for key in ["1-sunny", "1-rainy", "1-sourrain", "level3_text", "level3_prompt_rain", "level3_prompt1", "level3_prompt2", "level3_prompt_sour"]:
+            for key in ["1-sunny", "1-rainy", "1-sourrain", "level3_text", "level3_intro_text"]:
                 if alphas[key] > 0:
                     alphas[key] = max(0, alphas[key] - FADE_SPEED)
                     fade_out_complete = False
@@ -1375,7 +1490,6 @@ def main():
                 step = 31
                 state_start_time = current_time
                 reset_level3()
-                # 开启倒计时模式
                 is_counting_down = True
                 countdown_start_time = current_time
                 level3_game_active = False
@@ -1434,7 +1548,7 @@ def main():
                     if level3_weather_timer >= level3_weather_duration:
                         level3_weather_timer = 0
                         
-                        # 切换天气 (只在 sunny, rainy, sourrain 中切换)
+                        # 切换天气
                         options = ["sunny", "rainy", "sourrain"]
                         if level3_weather in options:
                             options.remove(level3_weather)
@@ -1445,66 +1559,56 @@ def main():
                             # 重置鸟屎逻辑
                             level3_bird_trigger_time = random.uniform(2.0, 3.0)
                             level3_bird_started = False
-                            level3_bird_finished = False # 重置完成状态
+                            level3_bird_finished = False 
                             bird_warning_timer = 0
-                            alphas["level3_prompt2"] = 0 # 确保文字隐藏
+                            alphas["level3_intro_text"] = 0 # 确保文字隐藏
                         else:
                             level3_weather_duration = random.uniform(WEATHER_MIN_DURATION, WEATHER_MAX_DURATION)
 
-                    # --- 鸟屎逻辑 (仅在 Sunny 期间触发) ---
+                    # --- 鸟屎逻辑 ---
                     if level3_weather == "sunny":
-                        # 触发检查
                         if not level3_bird_started and level3_weather_timer >= level3_bird_trigger_time:
                             level3_bird_started = True
-                            level3_bird_finished = False # 确保初始状态为未完成
+                            level3_bird_finished = False 
                             bird_warning_timer = 0
                             bird_warning_duration = random.uniform(2.0, 2.5)
-                            bird_active = False # 先不激活下落，先激活文字
-                            alphas["level3_prompt2"] = 0 
+                            bird_active = False 
+                            alphas["level3_intro_text"] = 0 
                         
-                        # 如果已经触发，进入警告阶段 (修改: 增加 and not level3_bird_finished)
+                        # 警告阶段 (复用 level3_intro_text 变量显示顶部提示)
                         if level3_bird_started and not bird_active and not level3_bird_finished:
-                            # 播放 bird shit 提示音效
-                            if alphas["level3_prompt2"] == 0:
+                            if alphas["level3_intro_text"] == 0:
                                 sounds["shit"].play()
 
-                            if alphas["level3_prompt2"] < 255:
-                                alphas["level3_prompt2"] = min(255, alphas["level3_prompt2"] + FADE_SPEED * 2)
+                            if alphas["level3_intro_text"] < 255:
+                                alphas["level3_intro_text"] = min(255, alphas["level3_intro_text"] + FADE_SPEED * 2)
                             
                             bird_warning_timer += dt / 1000
                             if bird_warning_timer >= bird_warning_duration:
-                                # 警告结束，开始下落
                                 bird_active = True
                                 bird_y = -50
-                                # 设定起始 X 坐标为中心偏左 200 像素
                                 bird_x = (SCREEN_WIDTH // 2) - 200
                                 bird_checked = False
                                 alphas["birdshit"] = 255
-                                alphas["level3_prompt2"] = 0 # 文字立即消失 (要求2/3)
+                                alphas["level3_intro_text"] = 0 
 
-                    # --- 鸟屎下落逻辑 (独立于天气，只要激活了就一直落) ---
+                    # --- 鸟屎下落逻辑 ---
                     if bird_active:
                         bird_y += BIRD_DROP_SPEED
-                        # 增加 X 坐标
                         bird_x += BIRD_DROP_SPEED * 0.5
                         check_y = SCREEN_HEIGHT * BIRD_CHECK_HEIGHT_RATIO
                         
-                        # 判定时刻
                         if bird_y >= check_y and not bird_checked:
                             bird_checked = True
                             if is_arms_open:
-                                # 手打开 -> 判定失败，鸟屎继续下落
                                 pass 
                             else:
-                                # 手关闭 -> 判定成功，鸟屎直接消失
                                 bird_active = False
                                 alphas["birdshit"] = 0
-                                level3_bird_finished = True # 标记本次结束
+                                level3_bird_finished = True 
                         
-                        # 如果判定已过且鸟屎还活着（说明是手打开的情况），继续判断是否砸中花
                         if bird_checked and bird_active:
                             if bird_y >= SCREEN_HEIGHT // 2:
-                                # 砸中花朵（1/2高度），游戏失败
                                 level3_game_active = False
                                 step = 32
                                 state_start_time = current_time
@@ -1527,21 +1631,19 @@ def main():
                             level3_sourrain_damage += dt / 1000
                             level3_sourrain_damage = min(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE)
                     
-                    # 胜利/失败判定
                     if (level3_sunlight_collected >= LEVEL3_SUNLIGHT_REQUIRED and 
                         level3_rain_collected >= LEVEL3_RAIN_REQUIRED):
                         # 胜利
                         step = 33
                         state_start_time = current_time
                         level3_game_active = False
-                        # 隐藏游戏界面元素
-                        for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer", "t-sunny", "t-rainy", "1-sourrain", "birdshit", "level3_prompt2"]:
+                        for k in ["t-1", "t-l", "t-r", "3-f", "level3_number", "level3_timer", "t-sunny", "t-rainy", "1-sourrain", "birdshit", "level3_intro_text"]:
                             alphas[k] = 0
                         stop_all_environment_sounds()
                         sounds["pass"].play()
                     
                     elif level3_sourrain_damage >= LEVEL3_SOURRAIN_TOLERANCE:
-                        # 失败 (酸雨)
+                        # 失败
                         step = 32
                         state_start_time = current_time
                         level3_game_active = False
@@ -1551,7 +1653,7 @@ def main():
                         sounds["fail"].play()
 
                     elif level3_time_left <= 0:
-                        # 失败 (超时)
+                        # 失败
                         step = 32
                         state_start_time = current_time
                         level3_game_active = False
@@ -1582,7 +1684,7 @@ def main():
                 for key in alphas:
                     alphas[key] = 0
 
-        # Step 33: 最终结局 Part 1
+        # Step 33 & 34: 最终结局 Part 1
         elif step == 33:
             if alphas["E-1"] < 255:
                 alphas["E-1"] = min(255, alphas["E-1"] + FADE_SPEED)
@@ -1594,8 +1696,8 @@ def main():
             if alphas["ending_text_1"] >= 255 and click_event:
                  step = 34
                  state_start_time = current_time
-                 stop_bgm_fadeout() # 停止BGM
-                 sounds["ending"].play(fade_ms=2000) # 播放Ending音效
+                 stop_bgm_fadeout() 
+                 sounds["ending"].play(fade_ms=2000)
                  
         # Step 34: 最终结局 Part 2
         elif step == 34:
@@ -1611,7 +1713,6 @@ def main():
                  if alphas["ending_text_2"] < 255:
                      alphas["ending_text_2"] = min(255, alphas["ending_text_2"] + FADE_SPEED)
             
-            # 点击关闭窗口
             if alphas["ending_text_2"] >= 255 and click_event:
                 running = False
 
@@ -1714,12 +1815,7 @@ def main():
         if step >= 1 and step < 16: 
             blit_alpha("1", (0, 0))
             if step == 1 and alphas["text_step1"] > 0:
-                text_content = "click anywhere to continue"
-                text_surf = game_font.render(text_content, True, WHITE)
-                text_alpha = alphas["text_step1"] 
-                text_surf.set_alpha(text_alpha)
-                text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
-                screen.blit(text_surf, text_rect)
+                draw_styled_text_box("click anywhere to continue", alphas["text_step1"], style="bottom_left", font=ui_big_font)
 
         if step >= 2 and step < 16: 
             blit_alpha("2-1", (0, 0))
@@ -1783,10 +1879,8 @@ def main():
                 blit_alpha("t-a", (pos_a_x, pos_a_y))
             
             if step == 10 or step == 11:
-                text_content = "Open and close the arms with mouse to raise and protect the flower!"
-                text_alpha = alphas["t-m"] 
-                if text_alpha > 0:
-                    draw_tutorial_text(text_content, text_alpha)
+                if alphas["t-m"] > 0:
+                    draw_styled_text_box("Open and close the arms with mouse to raise and protect the flower!", alphas["t-m"])
 
             if step >= 12 and alphas["t-sunny"] > 0:
                 blit_alpha("t-sunny", (0, 0))
@@ -1796,19 +1890,20 @@ def main():
 
             if step == 12:
                 if alphas["prompt_sunlight"] > 0:
-                    draw_tutorial_text("Open your arms to let the flower receive sunlight.", alphas["prompt_sunlight"])
+                    draw_styled_text_box("Collect sunlight by opening your arms.", alphas["prompt_sunlight"])
                 if sunlight_timer > 0 and sunlight_timer < SUNLIGHT_REQUIRED:
-                    draw_progress_bar(sunlight_timer, SUNLIGHT_REQUIRED, 255, is_rain_damage=False)
+                    # 教学阶段进度条
+                    draw_progress_bar_custom(sunlight_timer, SUNLIGHT_REQUIRED, 255, "icon_sun", SCREEN_WIDTH//2 - 175, SCREEN_HEIGHT - 120, 350, 20)
 
             if step == 13 or step == 14 or (step == 15 and alphas["prompt_rain"] > 0): 
-                text_content = "The flower has enough sunlight. Now, close arms to prevent it from taking on rain."
-                draw_tutorial_text(text_content, alphas["prompt_rain"])
+                draw_styled_text_box("Block unwanted rain by closing them.", alphas["prompt_rain"])
                 
             if step == 14 and alphas["t-rainy"] >= 255:
-                draw_progress_bar(damage_accumulated, RAIN_PROTECTION_DURATION, 255, is_rain_damage=True)
+                # 教学阶段雨天伤害
+                draw_progress_bar_custom(damage_accumulated, RAIN_PROTECTION_DURATION, 255, "icon_heart", SCREEN_WIDTH//2 - 175, SCREEN_HEIGHT - 120, 350, 20, is_damage=True)
 
             if step == 15 and alphas["prompt_success"] > 0:
-                text1 = "Rainwater entry has been successfully stopped."
+                text1 = "The flower's needs will change, so watch carefully!"
                 text2 = "Now you can focus on truly caring for this flower."
                 
                 time_since_step_15_start = current_time - state_start_time
@@ -1816,8 +1911,7 @@ def main():
                     text_to_draw = text1
                 else:
                     text_to_draw = text2
-                    
-                draw_tutorial_text(text_to_draw, alphas["prompt_success"])
+                draw_styled_text_box(text_to_draw, alphas["prompt_success"])
 
             if step >= 14 and alphas["t-rainy"] > 0 and len(raindrops) > 0:
                 raindrop_img = images["t-raindrop"]
@@ -1836,35 +1930,29 @@ def main():
                 
             if alphas["1-rainy"] > 0:
                 blit_alpha("1-rainy", (0, 0))
-                # 雨滴跟随 1-rainy 透明度
                 if len(raindrops) > 0:
                     raindrop_img = images["t-raindrop"]
                     raindrop_img.set_alpha(alphas["1-rainy"])
                     for drop in raindrops:
                         screen.blit(raindrop_img, (drop["x"], drop["y"]))
 
-            # --- 花朵绘制 (修改：缩放 + 智能透明度) ---
+            # --- 花朵绘制 ---
             flower_alpha = max(alphas["1-sunny"], alphas["1-rainy"])
-            
-            if flower_alpha > 0:
-                # 1. 缩放逻辑：缩小 1/3 (变为原来的 2/3)
-                scale_ratio = 2/3
-                orig_w = images["t-f"].get_width()
-                orig_h = images["t-f"].get_height()
-                scaled_flower = pygame.transform.smoothscale(images["t-f"], (int(orig_w * scale_ratio), int(orig_h * scale_ratio)))
-                scaled_flower.set_alpha(flower_alpha)
-                pos_f_x = (SCREEN_WIDTH - scaled_flower.get_width()) // 2 + 10
-                pos_f_y = SCREEN_HEIGHT - scaled_flower.get_height() - 277
-                screen.blit(scaled_flower, (pos_f_x, pos_f_y))
+            if flower_alpha > 0 and "t-f-intro-scaled" in images:
+                # 优化：使用预缩放的图片
+                img = images["t-f-intro-scaled"]
+                img.set_alpha(flower_alpha)
+                pos_f_x = (SCREEN_WIDTH - img.get_width()) // 2 + 10
+                pos_f_y = SCREEN_HEIGHT - img.get_height() - 277
+                screen.blit(img, (pos_f_x, pos_f_y))
             
             # --- 文字绘制 ---
             if alphas["level1_text"] > 0:
                 draw_level_text("Level 1", alphas["level1_text"])
             
-            if alphas["level1_prompt1"] > 0:
-                draw_tutorial_text("when it's sunny, you need to collect sunlight.", alphas["level1_prompt1"])
-            if alphas["level1_prompt2"] > 0:
-                draw_tutorial_text("But when the rain falls, you need to prevent the raindrop.", alphas["level1_prompt2"])
+            # 统一介绍文字
+            if alphas["level1_intro_text"] > 0:
+                draw_styled_text_box("The seedling has been watered! Time for some sunlight!", alphas["level1_intro_text"])
         
         elif step == 19:
             blit_alpha("t-1", (0, 0))
@@ -1882,9 +1970,7 @@ def main():
             hand_r_y = center_y 
             blit_alpha("t-r", (hand_r_x, hand_r_y))
 
-            # 根据天气或倒计时绘制覆盖层
             if is_counting_down:
-                # 倒计时期间保持默认背景色 (或者你可以选择显示 sunny)
                 images["t-sunny"].set_alpha(255)
                 screen.blit(images["t-sunny"], (0, 0))
             elif level1_weather == "sunny":
@@ -1894,11 +1980,10 @@ def main():
                 images["t-rainy"].set_alpha(255)
                 screen.blit(images["t-rainy"], (0, 0))
             
-            # 绘制倒计时蒙版和数字
             if is_counting_down:
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-                overlay.fill((128, 128, 128)) # 灰色
-                overlay.set_alpha(150) # 半透明
+                overlay.fill((128, 128, 128)) 
+                overlay.set_alpha(150) 
                 screen.blit(overlay, (0, 0))
                 
                 time_rem = 3 - int((current_time - countdown_start_time) / 1000)
@@ -1913,9 +1998,19 @@ def main():
             if alphas["level1_timer"] > 0:
                 draw_game_timer(level1_time_left, alphas["level1_timer"])
             
+            # --- Level 1 进度条布局 (左右并排) ---
             if level1_game_active:
-                draw_progress_bar(level1_sunlight_collected, LEVEL1_SUNLIGHT_REQUIRED, 255, is_rain_damage=False, bar_offset=0)
-                draw_progress_bar(level1_rain_damage, LEVEL1_RAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=1)
+                bar_width = 350
+                # 修改：增加间距，避免遮挡
+                spacing = 180 
+                total_w = bar_width * 2 + spacing
+                start_x = (SCREEN_WIDTH - total_w) // 2
+                
+                # 左：Sunlight (collected)
+                draw_progress_bar_custom(level1_sunlight_collected, LEVEL1_SUNLIGHT_REQUIRED, 255, "icon_sun", start_x, SCREEN_HEIGHT - 100, bar_width, 20)
+                
+                # 右：Rain Damage
+                draw_progress_bar_custom(level1_rain_damage, LEVEL1_RAIN_TOLERANCE, 255, "icon_heart", start_x + bar_width + spacing, SCREEN_HEIGHT - 100, bar_width, 20, is_damage=True)
             
             if level1_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
@@ -1929,16 +2024,15 @@ def main():
                 pos_f_x = (SCREEN_WIDTH - images["2-f"].get_width()) // 2 + 10
                 pos_f_y = SCREEN_HEIGHT - images["2-f"].get_height() - 200
                 blit_alpha("2-f", (pos_f_x, pos_f_y))
-                if alphas["level1_prompt1"] > 0:
-                    draw_tutorial_text("The seed has turned into a bud.", alphas["level1_prompt1"])
+                if alphas["level1_intro_text"] > 0:
+                    draw_styled_text_box("The seed has turned into a bud.", alphas["level1_intro_text"])
             else:
                 blit_alpha("1-baselose", (0, 0))
                 pos_f_x = (SCREEN_WIDTH - images["1-f-l"].get_width()) // 2 + 20
                 pos_f_y = SCREEN_HEIGHT - images["1-f-l"].get_height() - 200
                 blit_alpha("1-f-l", (pos_f_x, pos_f_y))
-                if alphas["level1_prompt2"] > 0:
-                    # 修改后的失败文字
-                    draw_tutorial_text("You lost. The seed dies. Click to try again.", alphas["level1_prompt2"])
+                if alphas["prompt_fail_l1"] > 0:
+                    draw_styled_text_box("You lost. The seed dies. Click to try again.", alphas["prompt_fail_l1"])
 
         # ====================================================
         # 第二关绘制
@@ -1948,7 +2042,6 @@ def main():
             # --- 背景绘制 ---
             if alphas["1-sunny"] > 0:
                 blit_alpha("1-sunny", (0, 0))
-
             if alphas["1-rainy"] > 0:
                 blit_alpha("1-rainy", (0, 0))
                 if len(raindrops) > 0:
@@ -1956,7 +2049,6 @@ def main():
                     raindrop_img.set_alpha(alphas["1-rainy"])
                     for drop in raindrops:
                         screen.blit(raindrop_img, (drop["x"], drop["y"]))
-
             if alphas["1-sourrain"] > 0:
                 blit_alpha("1-sourrain", (0, 0))
                 if len(sourraindrops) > 0:
@@ -1965,9 +2057,8 @@ def main():
                     for drop in sourraindrops:
                         screen.blit(sourraindrop_img, (drop["x"], drop["y"]))
             
-            # --- 花朵绘制 (修改：缩放 + 智能透明度) ---
+            # --- 花朵绘制 ---
             flower_alpha = max(alphas["1-sunny"], alphas["1-rainy"], alphas["1-sourrain"])
-
             if flower_alpha > 0:
                 scale_ratio = 2/3
                 orig_w = images["2-f"].get_width()
@@ -1982,12 +2073,9 @@ def main():
             if alphas["level2_text"] > 0:
                 draw_level_text("Level 2", alphas["level2_text"])
             
-            if alphas["level2_prompt1"] > 0:
-                draw_tutorial_text("when it's sunny, you need to collect sunlight.", alphas["level2_prompt1"])
-            if alphas["level2_prompt2"] > 0:
-                draw_tutorial_text("When the rain falls, you need to collect the raindrop this time.", alphas["level2_prompt2"])
-            if alphas["level2_prompt3"] > 0:
-                draw_tutorial_text("But when the sourrain falls, you need to prevent the sourrain.", alphas["level2_prompt3"])
+            # 统一介绍文字
+            if alphas["level2_intro_text"] > 0:
+                draw_styled_text_box("To make it bloom, give it plenty of sun and rain. But watch out for the sourrain!", alphas["level2_intro_text"])
         
         elif step == 25:
             blit_alpha("t-1", (0, 0))
@@ -2015,13 +2103,11 @@ def main():
                 images["t-rainy"].set_alpha(255)
                 screen.blit(images["t-rainy"], (0, 0))
             elif level2_weather == "sourrain":
-                # [REQ 1] 使用代码生成半透明绿色层，代替缺失的 t-sourrain 图片
                 sour_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-                sour_overlay.fill((140, 160, 60)) # 酸雨黄绿色
-                sour_overlay.set_alpha(100) # 半透明
+                sour_overlay.fill((140, 160, 60)) 
+                sour_overlay.set_alpha(100) 
                 screen.blit(sour_overlay, (0, 0))
             
-            # 绘制倒计时蒙版和数字
             if is_counting_down:
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
                 overlay.fill((128, 128, 128))
@@ -2040,10 +2126,21 @@ def main():
             if alphas["level2_timer"] > 0:
                 draw_game_timer(level2_time_left, alphas["level2_timer"])
             
+            # --- Level 2 进度条布局 (上2 下1) ---
             if level2_game_active:
-                draw_progress_bar(level2_sunlight_collected, LEVEL2_SUNLIGHT_REQUIRED, 255, is_rain_damage=False, bar_offset=0)
-                draw_progress_bar(level2_rain_collected, LEVEL2_RAIN_REQUIRED, 255, is_rain_damage=False, is_rain_collect=True, bar_offset=1)
-                draw_progress_bar(level2_sourrain_damage, LEVEL2_SOURRAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=2)
+                bar_width = 350
+                # 修改：增加间距，避免遮挡
+                spacing = 180
+                total_w = bar_width * 2 + spacing
+                row1_start_x = (SCREEN_WIDTH - total_w) // 2
+                
+                # 第一行：Sunlight (Collect) | Rain (Collect)
+                draw_progress_bar_custom(level2_sunlight_collected, LEVEL2_SUNLIGHT_REQUIRED, 255, "icon_sun", row1_start_x, SCREEN_HEIGHT - 160, bar_width, 20)
+                draw_progress_bar_custom(level2_rain_collected, LEVEL2_RAIN_REQUIRED, 255, "icon_drop", row1_start_x + bar_width + spacing, SCREEN_HEIGHT - 160, bar_width, 20)
+
+                # 第二行：Sourrain (Damage)
+                row2_start_x = (SCREEN_WIDTH - bar_width) // 2
+                draw_progress_bar_custom(level2_sourrain_damage, LEVEL2_SOURRAIN_TOLERANCE, 255, "icon_heart", row2_start_x, SCREEN_HEIGHT - 100, bar_width, 20, is_damage=True)
             
             if level2_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
@@ -2064,16 +2161,15 @@ def main():
                 pos_f_x = (SCREEN_WIDTH - images["3-f"].get_width()) // 2 + 20
                 pos_f_y = SCREEN_HEIGHT - images["3-f"].get_height() - 200
                 blit_alpha("3-f", (pos_f_x, pos_f_y))
-                if alphas["level2_prompt1"] > 0:
-                    draw_tutorial_text("The bud has turned into a flower.", alphas["level2_prompt1"])
+                if alphas["level2_intro_text"] > 0:
+                    draw_styled_text_box("The bud has turned into a flower.", alphas["level2_intro_text"])
             else:
                 blit_alpha("1-baselose", (0, 0))
                 pos_f_x = (SCREEN_WIDTH - images["2-f-l"].get_width()) // 2 + 20
                 pos_f_y = SCREEN_HEIGHT - images["2-f-l"].get_height() - 200
                 blit_alpha("2-f-l", (pos_f_x, pos_f_y))
-                if alphas["level2_prompt2"] > 0:
-                    # 修改后的失败文字
-                    draw_tutorial_text("You lost. The bud dies. Click to try again.", alphas["level2_prompt2"])
+                if alphas["prompt_fail_l2"] > 0:
+                    draw_styled_text_box("You lost. The bud dies. Click to try again.", alphas["prompt_fail_l2"])
 
         # ====================================================
         # 第三关绘制 (NEW)
@@ -2104,7 +2200,7 @@ def main():
                 bird_img.set_alpha(alphas["birdshit"])
                 screen.blit(bird_img, (bird_intro_x - bird_img.get_width() // 2, bird_intro_y))
 
-            # --- 花朵绘制 (3-f 缩小1/3) ---
+            # --- 花朵绘制 ---
             flower_alpha = max(alphas["1-sunny"], alphas["1-rainy"], alphas["1-sourrain"])
             if flower_alpha > 0:
                 scale_ratio = 2/3
@@ -2120,22 +2216,10 @@ def main():
             if alphas["level3_text"] > 0:
                 draw_level_text("Level 3", alphas["level3_text"])
             
-            # Sunny 介绍文字
-            if alphas["level3_prompt_rain"] > 0:
-                draw_tutorial_text("when it's sunny, you need to collect sunlight.", alphas["level3_prompt_rain"])
+            # 统一介绍文字
+            if alphas["level3_intro_text"] > 0:
+                draw_styled_text_box("The fragile flower needs rain and sun. Protect it from both sourrain and crow droppings — listen for the caw and block quickly!", alphas["level3_intro_text"])
 
-            # 鸟屎介绍文字
-            if alphas["level3_prompt1"] > 0:
-                draw_tutorial_text("Be careful of falling bird droppings.", alphas["level3_prompt1"])
-            
-            # Rainy 介绍文字 (复用prompt2)
-            if alphas["level3_prompt2"] > 0:
-                draw_tutorial_text("When the rain falls, you need to collect the raindrop this time.", alphas["level3_prompt2"])
-
-            # Sourrain 介绍文字
-            if alphas["level3_prompt_sour"] > 0:
-                draw_tutorial_text("But when the sourrain falls, you need to prevent the sourrain.", alphas["level3_prompt_sour"])
-        
         elif step == 31:
             blit_alpha("t-1", (0, 0))
             
@@ -2167,7 +2251,6 @@ def main():
                 sour_overlay.set_alpha(100) 
                 screen.blit(sour_overlay, (0, 0))
             
-            # 绘制倒计时蒙版和数字
             if is_counting_down:
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
                 overlay.fill((128, 128, 128))
@@ -2193,13 +2276,25 @@ def main():
                 draw_game_timer(level3_time_left, alphas["level3_timer"])
 
             # 鸟经过提示文字 (显示在顶部)
-            if alphas["level3_prompt2"] > 0:
-                draw_top_text("A bird passed by", alphas["level3_prompt2"])
+            if alphas["level3_intro_text"] > 0:
+                draw_top_text("The bird is coming!", alphas["level3_intro_text"])
 
+            # --- Level 3 进度条布局 (上2 下1) ---
             if level3_game_active:
-                draw_progress_bar(level3_sunlight_collected, LEVEL3_SUNLIGHT_REQUIRED, 255, is_rain_damage=False, bar_offset=0)
-                draw_progress_bar(level3_rain_collected, LEVEL3_RAIN_REQUIRED, 255, is_rain_damage=False, is_rain_collect=True, bar_offset=1)
-                draw_progress_bar(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE, 255, is_rain_damage=True, bar_offset=2)
+                bar_width = 350
+                # 修改：增加间距，避免遮挡
+                spacing = 180
+                total_w = bar_width * 2 + spacing
+                row1_start_x = (SCREEN_WIDTH - total_w) // 2
+                
+                # 第一行：Sunlight (Collect) | Rain (Collect)
+                draw_progress_bar_custom(level3_sunlight_collected, LEVEL3_SUNLIGHT_REQUIRED, 255, "icon_sun", row1_start_x, SCREEN_HEIGHT - 160, bar_width, 20)
+                draw_progress_bar_custom(level3_rain_collected, LEVEL3_RAIN_REQUIRED, 255, "icon_drop", row1_start_x + bar_width + spacing, SCREEN_HEIGHT - 160, bar_width, 20)
+
+                # 第二行：Sourrain (Damage)
+                row2_start_x = (SCREEN_WIDTH - bar_width) // 2
+                draw_progress_bar_custom(level3_sourrain_damage, LEVEL3_SOURRAIN_TOLERANCE, 255, "icon_heart", row2_start_x, SCREEN_HEIGHT - 100, bar_width, 20, is_damage=True)
+
 
             if level3_weather == "rainy" and len(raindrops) > 0 and not is_counting_down:
                 raindrop_img = images["t-raindrop"]
@@ -2221,24 +2316,20 @@ def main():
             blit_alpha("3-f-l", (pos_f_x, pos_f_y))
             
             if alphas["level3_prompt_fail"] > 0:
-                 # 修改后的失败文字
-                 draw_tutorial_text("You lost. The flower dies. Click to try again.", alphas["level3_prompt_fail"])
+                 draw_styled_text_box("You lost. The flower dies. Click to try again.", alphas["level3_prompt_fail"])
 
         # Step 33 & 34: 最终结局
         elif step == 33 or step == 34:
              if alphas["E-1"] > 0:
                  blit_alpha("E-1", (0, 0))
                  if alphas["ending_text_1"] > 0:
-                     draw_tutorial_text("Congratulations, your flower is already in full bloom!", alphas["ending_text_1"])
+                     draw_styled_text_box("Congratulations, your flower is already in full bloom!", alphas["ending_text_1"])
             
              if alphas["E-2"] > 0:
                  blit_alpha("E-2", (0, 0))
                  if alphas["ending_text_2"] > 0:
-                     # 绘制大号 Ending 文字
-                     text_surf = level_font.render("- Ending -", True, WHITE)
-                     text_surf.set_alpha(alphas["ending_text_2"])
-                     text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-                     screen.blit(text_surf, text_rect)
+                     # 绘制大号 Ending 文字 (左下角框)
+                     draw_styled_text_box("Happy Ending", alphas["ending_text_2"], style="bottom_left", font=ui_big_font, offset=(80, -100))
             
         # 点击关闭窗口
         if alphas["ending_text_2"] >= 255 and click_event:
