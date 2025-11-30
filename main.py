@@ -290,7 +290,9 @@ def draw_text_with_outline_and_shadow(surface, text, font, color, outline_color,
     
     # 投影 (Shadow)
     shadow_surf = font.render(text, True, BLACK)
-    surface.blit(shadow_surf, (pos[0] + 2, pos[1] + 3))
+
+    shadow_angle = 135 
+    surface.blit(shadow_surf, (pos[0] + 2, pos[1] + 2))
     
     # 描边 (Outline) - 8方向绘制
     for dx in range(-outline_width, outline_width + 1):
@@ -365,7 +367,7 @@ def draw_level_text(content, alpha):
     surf = pygame.Surface((w + 20, h + 20), pygame.SRCALPHA)
     
     # 修正：颜色强制改为 WHITE
-    draw_text_with_outline_and_shadow(surf, content, level_font, WHITE, LEVEL_TITLE_OUTLINE, (10, 10), 3)
+    draw_text_with_outline_and_shadow(surf, content, level_font, WHITE, LEVEL_TITLE_OUTLINE, (10, 10), 1)
     
     surf.set_alpha(alpha)
     rect = surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 220)) # 位置稍微上调避开底部文字框
