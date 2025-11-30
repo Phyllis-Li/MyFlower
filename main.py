@@ -157,15 +157,15 @@ pygame.display.set_caption("Game Opening Sequence")
 clock = pygame.time.Clock()
 
 try:
-    game_font = pygame.font.Font(FONT_PATH, 24)
-    ui_big_font = pygame.font.Font(FONT_PATH, 36) # 新增：48号大字体
-    level_font = pygame.font.Font(FONT_PATH, 48)
+    game_font = pygame.font.Font(FONT_PATH, 36)
+    ui_big_font = pygame.font.Font(FONT_PATH, 36) # 新增：36号大字体
+    level_font = pygame.font.Font(FONT_PATH, 60)
     countdown_font = pygame.font.Font(FONT_PATH, 120) # 倒计时大字体
 except:
     print(f"提示: 未找到字体 {FONT_PATH}，使用系统默认字体")
-    game_font = pygame.font.Font(None, 24)
+    game_font = pygame.font.Font(None, 36)
     ui_big_font = pygame.font.Font(None, 36) # 新增：默认大字体
-    level_font = pygame.font.Font(None, 48)
+    level_font = pygame.font.Font(None, 60)
     countdown_font = pygame.font.Font(None, 120)
 
 def load_img(key, size=None):
@@ -252,7 +252,7 @@ def get_cached_text_box_surface(content, style, font=None):
         return _text_surface_cache[cache_key]
     
     # --- 创建新的 Surface ---
-    max_text_width = 800 if style == "center_bottom" else 600
+    max_text_width = 1100 if style == "center_bottom" else 600
     lines = wrap_text(content, use_font, max_text_width)
     
     line_height = use_font.get_height()
@@ -304,12 +304,23 @@ def draw_text_with_outline_and_shadow(surface, text, font, color, outline_color,
     return text_surf.get_size()
 
 def wrap_text(text, font, max_width):
-    """简单的文字换行处理"""
+    """简单的文字换行处理 (修改版：支持 \\n 强制换行)"""
     words = text.split(' ')
     lines = []
     current_line = []
     
     for word in words:
+        # === 新增：检测手动换行符 ===
+        if '\n' in word:
+            parts = word.split('\n')
+            # 第一部分加到当前行
+            current_line.append(parts[0])
+            lines.append(' '.join(current_line))
+            # 第二部分作为新行的开始
+            current_line = [parts[1]] if parts[1] else []
+            continue
+        # ==========================
+
         test_line = ' '.join(current_line + [word])
         w, h = font.size(test_line)
         if w < max_width:
@@ -357,7 +368,7 @@ def draw_level_text(content, alpha):
     draw_text_with_outline_and_shadow(surf, content, level_font, WHITE, LEVEL_TITLE_OUTLINE, (10, 10), 3)
     
     surf.set_alpha(alpha)
-    rect = surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 180)) # 位置稍微上调避开底部文字框
+    rect = surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 220)) # 位置稍微上调避开底部文字框
     screen.blit(surf, rect)
 
 def draw_progress_bar_custom(current, required, alpha, icon_key, x, y, width=350, height=20, is_damage=False):
@@ -1896,7 +1907,7 @@ def main():
                     draw_progress_bar_custom(sunlight_timer, SUNLIGHT_REQUIRED, 255, "icon_sun", SCREEN_WIDTH//2 - 175, SCREEN_HEIGHT - 120, 350, 20)
 
             if step == 13 or step == 14 or (step == 15 and alphas["prompt_rain"] > 0): 
-                draw_styled_text_box("Block unwanted rain by closing them.", alphas["prompt_rain"])
+                draw_styled_text_box("Close arms to prevent unwanted raindrop.", alphas["prompt_rain"])
                 
             if step == 14 and alphas["t-rainy"] >= 255:
                 # 教学阶段雨天伤害
@@ -2218,7 +2229,7 @@ def main():
             
             # 统一介绍文字
             if alphas["level3_intro_text"] > 0:
-                draw_styled_text_box("The fragile flower needs rain and sun. Protect it from both sourrain and crow droppings — listen for the caw and block quickly!", alphas["level3_intro_text"])
+                draw_styled_text_box("The fragile flower needs rain and sun. \n Protect it from both sourrain and crow droppings — listen for the caw and block quickly!", alphas["level3_intro_text"])
 
         elif step == 31:
             blit_alpha("t-1", (0, 0))
